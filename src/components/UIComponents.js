@@ -1,17 +1,23 @@
 // src/components/UIComponents.js
-import React from 'react';
+import React from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
-  Animated,
-} from 'react-native';
-import { COLORS, FONTS, SPACING, RADIUS, SHADOW } from '../utils/theme';
+} from "react-native";
+import { COLORS, FONTS, SPACING, RADIUS, SHADOW } from "../utils/theme";
 
 // ─── Primary Button ──────────────────────────────────────────────────────────
-export function PrimaryButton({ title, onPress, disabled, loading, style, icon }) {
+export function PrimaryButton({
+  title,
+  onPress,
+  disabled,
+  loading,
+  style,
+  icon,
+}) {
   return (
     <TouchableOpacity
       style={[styles.primaryBtn, disabled && styles.primaryBtnDisabled, style]}
@@ -49,14 +55,23 @@ export function SecondaryButton({ title, onPress, style, icon }) {
 export function ToolCard({ title, subtitle, icon, colors, onPress }) {
   return (
     <TouchableOpacity
-      style={[styles.toolCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
+      style={[
+        styles.toolCard,
+        { backgroundColor: colors.bg, borderColor: colors.border },
+      ]}
       onPress={onPress}
       activeOpacity={0.85}
     >
-      <View style={[styles.toolCardIcon, { backgroundColor: colors.icon + '22' }]}>
-        <Text style={[styles.toolCardIconText, { color: colors.icon }]}>{icon}</Text>
+      <View
+        style={[styles.toolCardIcon, { backgroundColor: colors.icon + "22" }]}
+      >
+        <Text style={[styles.toolCardIconText, { color: colors.icon }]}>
+          {icon}
+        </Text>
       </View>
-      <Text style={[styles.toolCardTitle, { color: COLORS.text }]}>{title}</Text>
+      <Text style={[styles.toolCardTitle, { color: COLORS.text }]}>
+        {title}
+      </Text>
       <Text style={[styles.toolCardSubtitle]}>{subtitle}</Text>
     </TouchableOpacity>
   );
@@ -64,19 +79,28 @@ export function ToolCard({ title, subtitle, icon, colors, onPress }) {
 
 // ─── File Item ───────────────────────────────────────────────────────────────
 export function FileItem({ name, size, onDelete, showDelete = true, badge }) {
-  const shortName = name?.length > 30 ? name.substring(0, 28) + '…' : name;
+  const shortName = name?.length > 30 ? name.substring(0, 28) + "…" : name;
   return (
     <View style={styles.fileItem}>
       <View style={styles.fileItemIcon}>
         <Text style={styles.fileItemIconText}>📄</Text>
       </View>
       <View style={styles.fileItemInfo}>
-        <Text style={styles.fileItemName} numberOfLines={1}>{shortName}</Text>
+        <Text style={styles.fileItemName} numberOfLines={1}>
+          {shortName}
+        </Text>
         {size ? <Text style={styles.fileItemSize}>{size}</Text> : null}
       </View>
-      {badge ? <View style={styles.badge}><Text style={styles.badgeText}>{badge}</Text></View> : null}
+      {badge ? (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badge}</Text>
+        </View>
+      ) : null}
       {showDelete && onDelete && (
-        <TouchableOpacity onPress={onDelete} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          onPress={onDelete}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Text style={styles.deleteIcon}>✕</Text>
         </TouchableOpacity>
       )}
@@ -97,7 +121,12 @@ export function SectionHeader({ title, subtitle }) {
 // ─── Stat Badge ──────────────────────────────────────────────────────────────
 export function StatBadge({ label, value, color }) {
   return (
-    <View style={[styles.statBadge, { borderColor: color + '40', backgroundColor: color + '12' }]}>
+    <View
+      style={[
+        styles.statBadge,
+        { borderColor: color + "40", backgroundColor: color + "12" },
+      ]}
+    >
       <Text style={[styles.statValue, { color }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
@@ -122,7 +151,10 @@ export function ProgressBar({ progress, color }) {
       <View
         style={[
           styles.progressFill,
-          { width: `${Math.round(progress * 100)}%`, backgroundColor: color || COLORS.primary },
+          {
+            width: `${Math.round(progress * 100)}%`,
+            backgroundColor: color || COLORS.primary,
+          },
         ]}
       />
     </View>
@@ -134,12 +166,14 @@ const styles = StyleSheet.create({
   // Primary Button
   primaryBtn: {
     backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.primaryDark,
     paddingVertical: 15,
     paddingHorizontal: SPACING.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     ...SHADOW.md,
   },
@@ -152,7 +186,7 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: FONTS.sizes.md,
     fontWeight: FONTS.weights.bold,
-    letterSpacing: 0.3,
+    letterSpacing: 0.1,
   },
   btnIcon: {
     fontSize: 18,
@@ -160,14 +194,15 @@ const styles = StyleSheet.create({
 
   // Secondary Button
   secondaryBtn: {
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.full,
     paddingVertical: 13,
     paddingHorizontal: SPACING.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
   secondaryBtnText: {
@@ -182,12 +217,12 @@ const styles = StyleSheet.create({
   // Tool Card
   toolCard: {
     borderRadius: RADIUS.xl,
-    borderWidth: 1.5,
+    borderWidth: 1,
     padding: SPACING.lg,
     flex: 1,
     minHeight: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "flex-start",
+    justifyContent: "space-between",
     gap: 6,
     ...SHADOW.sm,
   },
@@ -195,31 +230,31 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 4,
   },
   toolCardIconText: {
     fontSize: 26,
   },
   toolCardTitle: {
-    fontSize: FONTS.sizes.sm,
+    fontSize: FONTS.sizes.base,
     fontWeight: FONTS.weights.bold,
-    textAlign: 'center',
-    letterSpacing: 0.2,
+    textAlign: "left",
+    letterSpacing: 0,
   },
   toolCardSubtitle: {
-    fontSize: FONTS.sizes.xs,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
-    textAlign: 'center',
+    textAlign: "left",
   },
 
   // File Item
   fileItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.lg,
     padding: SPACING.md,
     marginBottom: SPACING.sm,
     borderWidth: 1,
@@ -230,9 +265,9 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: '#FFF3ED',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#FFF3ED",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: SPACING.md,
   },
   fileItemIconText: {
@@ -257,7 +292,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   badge: {
-    backgroundColor: COLORS.primary + '20',
+    backgroundColor: COLORS.primary + "20",
     borderRadius: RADIUS.full,
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -274,7 +309,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   sectionTitle: {
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.xl,
     fontWeight: FONTS.weights.bold,
     color: COLORS.text,
   },
@@ -287,10 +322,10 @@ const styles = StyleSheet.create({
   // Stat Badge
   statBadge: {
     flex: 1,
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    padding: SPACING.md,
-    alignItems: 'center',
+    padding: SPACING.base,
+    alignItems: "center",
   },
   statValue: {
     fontSize: FONTS.sizes.xl,
@@ -300,14 +335,19 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.xs,
     color: COLORS.textSecondary,
     marginTop: 2,
-    textAlign: 'center',
+    textAlign: "center",
   },
 
   // Empty State
   emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: SPACING.xxxl,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...SHADOW.sm,
   },
   emptyIcon: {
     fontSize: 52,
@@ -317,26 +357,26 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.lg,
     fontWeight: FONTS.weights.semiBold,
     color: COLORS.text,
-    textAlign: 'center',
+    textAlign: "center",
   },
   emptySubtitle: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: 6,
     lineHeight: 20,
   },
 
   // Progress Bar
   progressTrack: {
-    height: 8,
+    height: 10,
     backgroundColor: COLORS.border,
     borderRadius: RADIUS.full,
-    overflow: 'hidden',
-    width: '100%',
+    overflow: "hidden",
+    width: "100%",
   },
   progressFill: {
-    height: '100%',
+    height: "100%",
     borderRadius: RADIUS.full,
   },
 });

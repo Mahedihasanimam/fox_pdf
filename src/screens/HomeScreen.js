@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,44 +9,44 @@ import {
   StatusBar,
   TouchableOpacity,
   RefreshControl,
-} from 'react-native';
-import { COLORS, FONTS, SPACING, RADIUS, SHADOW } from '../utils/theme';
-import { ToolCard, FileItem, EmptyState } from '../components/UIComponents';
-import { listSavedFiles, formatFileSize } from '../utils/pdfHelpers';
-import * as Sharing from 'expo-sharing';
+} from "react-native";
+import { COLORS, FONTS, SPACING, RADIUS, SHADOW } from "../utils/theme";
+import { ToolCard, FileItem } from "../components/UIComponents";
+import { listSavedFiles, formatFileSize } from "../utils/pdfHelpers";
+import * as Sharing from "expo-sharing";
 
 const TOOLS = [
   {
-    id: 'imageToPdf',
-    title: 'Image to PDF',
-    subtitle: 'JPG, PNG → PDF',
-    icon: '🖼️',
+    id: "imageToPdf",
+    title: "Image to PDF",
+    subtitle: "JPG, PNG → PDF",
+    icon: "🖼️",
     colors: COLORS.imageToPdf,
-    screen: 'ImageToPdf',
+    screen: "ImageToPdf",
   },
   {
-    id: 'mergePdf',
-    title: 'Merge PDF',
-    subtitle: 'Combine files',
-    icon: '🔗',
+    id: "mergePdf",
+    title: "Merge PDF",
+    subtitle: "Combine files",
+    icon: "🔗",
     colors: COLORS.mergePdf,
-    screen: 'MergePdf',
+    screen: "MergePdf",
   },
   {
-    id: 'splitPdf',
-    title: 'Split PDF',
-    subtitle: 'Extract pages',
-    icon: '✂️',
+    id: "splitPdf",
+    title: "Split PDF",
+    subtitle: "Extract pages",
+    icon: "✂️",
     colors: COLORS.splitPdf,
-    screen: 'SplitPdf',
+    screen: "SplitPdf",
   },
   {
-    id: 'compressPdf',
-    title: 'Compress PDF',
-    subtitle: 'Reduce file size',
-    icon: '📦',
+    id: "compressPdf",
+    title: "Compress PDF",
+    subtitle: "Reduce file size",
+    icon: "📦",
     colors: COLORS.compressPdf,
-    screen: 'CompressPdf',
+    screen: "CompressPdf",
   },
 ];
 
@@ -60,7 +60,7 @@ export default function HomeScreen({ navigation }) {
   };
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', loadRecentFiles);
+    const unsubscribe = navigation.addListener("focus", loadRecentFiles);
     loadRecentFiles();
     return unsubscribe;
   }, [navigation]);
@@ -74,7 +74,7 @@ export default function HomeScreen({ navigation }) {
   const handleShare = async (file) => {
     try {
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(file.path, { mimeType: 'application/pdf' });
+        await Sharing.shareAsync(file.path, { mimeType: "application/pdf" });
       }
     } catch (e) {
       console.error(e);
@@ -87,17 +87,29 @@ export default function HomeScreen({ navigation }) {
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <View>
               <Text style={styles.headerBrand}>🦊 FoxPDF</Text>
-              <Text style={styles.headerTagline}>Your PDF Toolkit</Text>
+              <Text style={styles.headerTagline}>
+                Made for quick, everyday PDF tasks
+              </Text>
             </View>
             <View style={styles.headerBadge}>
               <Text style={styles.headerBadgeText}>FREE</Text>
+            </View>
+          </View>
+          <View style={styles.headerChipRow}>
+            <View style={styles.headerChip}>
+              <Text style={styles.headerChipText}>Private by default</Text>
+            </View>
+            <View style={styles.headerChip}>
+              <Text style={styles.headerChipText}>No upload needed</Text>
             </View>
           </View>
         </View>
@@ -105,7 +117,7 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.content}>
           {/* Tools Grid */}
           <View style={styles.toolsSection}>
-            <Text style={styles.sectionLabel}>TOOLS</Text>
+            <Text style={styles.sectionLabel}>Choose a tool</Text>
             <View style={styles.toolsGrid}>
               <View style={styles.toolsRow}>
                 {TOOLS.slice(0, 2).map((tool) => (
@@ -137,9 +149,9 @@ export default function HomeScreen({ navigation }) {
           {/* Recent Files */}
           <View style={styles.recentSection}>
             <View style={styles.recentHeader}>
-              <Text style={styles.sectionLabel}>RECENT FILES</Text>
+              <Text style={styles.sectionLabel}>Recent files</Text>
               {recentFiles.length > 0 && (
-                <TouchableOpacity onPress={() => navigation.navigate('Files')}>
+                <TouchableOpacity onPress={() => navigation.navigate("Files")}>
                   <Text style={styles.seeAllText}>See all</Text>
                 </TouchableOpacity>
               )}
@@ -155,7 +167,11 @@ export default function HomeScreen({ navigation }) {
               </View>
             ) : (
               recentFiles.map((file, index) => (
-                <TouchableOpacity key={index} onPress={() => handleShare(file)} activeOpacity={0.75}>
+                <TouchableOpacity
+                  key={index}
+                  onPress={() => handleShare(file)}
+                  activeOpacity={0.75}
+                >
                   <FileItem
                     name={file.name}
                     size={formatFileSize(file.size)}
@@ -181,7 +197,7 @@ export default function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.primary },
-  scroll: { flex: 1, backgroundColor: COLORS.background },
+  scroll: { flex: 1, backgroundColor: COLORS.paper },
   header: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: SPACING.base,
@@ -189,9 +205,9 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.xxl,
   },
   headerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   headerBrand: {
     fontSize: FONTS.sizes.xxl,
@@ -201,17 +217,35 @@ const styles = StyleSheet.create({
   },
   headerTagline: {
     fontSize: FONTS.sizes.sm,
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 2,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 4,
     fontWeight: FONTS.weights.medium,
   },
+  headerChipRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: SPACING.md,
+  },
+  headerChip: {
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.24)",
+  },
+  headerChipText: {
+    color: COLORS.white,
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.semiBold,
+  },
   headerBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: "rgba(255,255,255,0.2)",
     borderRadius: RADIUS.full,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: "rgba(255,255,255,0.3)",
   },
   headerBadgeText: {
     fontSize: FONTS.sizes.xs,
@@ -221,18 +255,18 @@ const styles = StyleSheet.create({
   },
   content: {
     marginTop: -16,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: COLORS.paper,
     paddingHorizontal: SPACING.base,
     paddingTop: SPACING.xl,
     paddingBottom: SPACING.xxxl,
   },
   sectionLabel: {
-    fontSize: FONTS.sizes.xs,
+    fontSize: FONTS.sizes.md,
     fontWeight: FONTS.weights.bold,
-    color: COLORS.textLight,
-    letterSpacing: 1.5,
+    color: COLORS.inkSoft,
+    letterSpacing: 0,
     marginBottom: SPACING.md,
   },
   toolsSection: {
@@ -242,16 +276,22 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   toolsRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: SPACING.sm,
   },
   recentSection: {
     marginBottom: SPACING.xl,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.md,
+    ...SHADOW.sm,
   },
   recentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: SPACING.md,
   },
   seeAllText: {
@@ -260,13 +300,13 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.weights.semiBold,
   },
   emptyRecent: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: SPACING.xxl,
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.surfaceAlt,
     borderRadius: RADIUS.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderStyle: 'dashed',
+    borderStyle: "solid",
   },
   emptyRecentIcon: { fontSize: 36, marginBottom: 8 },
   emptyRecentText: {
@@ -278,24 +318,24 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     color: COLORS.textLight,
     marginTop: 4,
-    textAlign: 'center',
+    textAlign: "center",
     paddingHorizontal: SPACING.xl,
   },
   infoBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: SPACING.sm,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: "#E8F5E9",
     borderRadius: RADIUS.md,
     padding: SPACING.md,
     borderWidth: 1,
-    borderColor: '#C8E6C9',
+    borderColor: "#C8E6C9",
   },
   infoBannerIcon: { fontSize: 16 },
   infoBannerText: {
     flex: 1,
     fontSize: FONTS.sizes.sm,
-    color: '#2E7D32',
+    color: "#2E7D32",
     fontWeight: FONTS.weights.medium,
   },
 });
