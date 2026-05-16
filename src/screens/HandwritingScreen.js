@@ -15,7 +15,6 @@ import * as Sharing from "expo-sharing";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system";
 import { Ionicons } from "@expo/vector-icons";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { useTheme } from "../context/ThemeContext";
 import { useProGate } from "../components/ProGate";
 import {
@@ -24,38 +23,46 @@ import {
   ProgressBar,
   ScreenHeader,
 } from "../components/UIComponents";
-import {
-  generateOutputName,
-  writeBase64ToFile,
-  uint8ArrayToBase64,
-} from "../utils/pdfHelpers";
+import { generateOutputName } from "../utils/pdfHelpers";
 import { FONTS, SPACING, RADIUS, SHADOW } from "../utils/theme";
 
 const OUTPUT_DIR = FileSystem.documentDirectory + "FoxPDF/";
 
-const FONTS_LIST = [
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+const CONTENT_TYPES = [
+  { id: "text", label: "Text Only", icon: "text-outline" },
+  { id: "title-text", label: "Title + Body", icon: "document-text-outline" },
+  { id: "title-chart", label: "Title + Chart", icon: "bar-chart-outline" },
+];
+
+const HANDWRITING_FONTS = [
   {
     id: "caveat",
     label: "Caveat",
-    family: "'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive",
+    url: "Caveat:wght@400;700",
+    name: "Caveat",
     sample: "Quick brown fox",
   },
   {
     id: "patrick",
     label: "Patrick Hand",
-    family: "'Noteworthy', 'Bradley Hand', cursive",
+    url: "Patrick+Hand",
+    name: "Patrick Hand",
     sample: "Quick brown fox",
   },
   {
     id: "kalam",
     label: "Kalam",
-    family: "'Snell Roundhand', 'Bradley Hand', cursive",
+    url: "Kalam:wght@300;400;700",
+    name: "Kalam",
     sample: "Quick brown fox",
   },
   {
     id: "indie",
     label: "Indie Flower",
-    family: "'Segoe Print', 'Bradley Hand', cursive",
+    url: "Indie+Flower",
+    name: "Indie Flower",
     sample: "Quick brown fox",
   },
 ];
@@ -69,139 +76,234 @@ const PAPER_STYLES = [
 
 const TEXT_SIZES = [
   { id: "small", label: "Small", fontSize: 18, lineHeight: 36 },
-  { id: "medium", label: "Medium", fontSize: 22, lineHeight: 40 },
-  { id: "large", label: "Large", fontSize: 28, lineHeight: 48 },
+  { id: "medium", label: "Medium", fontSize: 22, lineHeight: 42 },
+  { id: "large", label: "Large", fontSize: 28, lineHeight: 52 },
 ];
 
-async function buildHandwritingPdf(text, paperStyle, sizeConfig) {
-  const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
-  const pageWidth = 595;
-  const pageHeight = 842;
-  const left = 60;
-  const right = 40;
-  const top = 50;
-  const bottom = 50;
-  const usableWidth = pageWidth - left - right;
-  const lineGap = sizeConfig.lineHeight;
-  const fontSize = sizeConfig.fontSize;
-  const words = text.replace(/\r\n/g, "\n").split(/\s+/);
+const CHART_TYPES = [
+  { id: "bar", label: "Bar Chart", icon: "bar-chart-outline" },
+  { id: "line", label: "Line Graph", icon: "trending-up-outline" },
+];
 
-  let currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
-  let currentY = pageHeight - top;
-  let lineTop = currentY;
-  let lineCount = 0;
-  let currentLine = "";
+// ─── HTML / Chart builders ────────────────────────────────────────────────────
 
-  const drawPaper = (page) => {
-    const background =
-      paperStyle === "yellow" ? rgb(1, 0.99, 0.88) : rgb(1, 1, 1);
-    page.drawRectangle({
-      x: 0,
-      y: 0,
-      width: pageWidth,
-      height: pageHeight,
-      color: background,
-    });
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
-    const lineColor =
-      paperStyle === "yellow" ? rgb(0.8, 0.72, 0.42) : rgb(0.74, 0.8, 0.9);
-    const marginColor =
-      paperStyle === "yellow" ? rgb(0.88, 0.55, 0.35) : rgb(0.94, 0.5, 0.5);
-    if (paperStyle === "lined" || paperStyle === "yellow") {
-      for (let y = pageHeight - top - lineGap; y > bottom; y -= lineGap) {
-        page.drawLine({
-          start: { x: left, y },
-          end: { x: pageWidth - right, y },
-          color: lineColor,
-          thickness: 0.7,
-        });
-      }
-      page.drawLine({
-        start: { x: 52, y: bottom },
-        end: { x: 52, y: pageHeight - top },
-        color: marginColor,
-        thickness: 1.2,
-      });
-    } else if (paperStyle === "graph") {
-      for (let x = left; x < pageWidth - right; x += 20) {
-        page.drawLine({
-          start: { x, y: bottom },
-          end: { x, y: pageHeight - top },
-          color: rgb(0.82, 0.86, 0.94),
-          thickness: 0.5,
-        });
-      }
-      for (let y = bottom; y < pageHeight - top; y += 20) {
-        page.drawLine({
-          start: { x: left, y },
-          end: { x: pageWidth - right, y },
-          color: rgb(0.82, 0.86, 0.94),
-          thickness: 0.5,
-        });
-      }
-    }
-  };
+function buildChartSvg({ type, labels, values, chartTitle }) {
+  const W = 480;
+  const H = 260;
+  const padL = 44;
+  const padR = 20;
+  const padT = chartTitle ? 38 : 20;
+  const padB = 52;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const maxVal = Math.max(...values, 1);
 
-  const startNewPage = () => {
-    currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
-    drawPaper(currentPage);
-    currentY = pageHeight - top;
-    lineTop = currentY;
-    lineCount = 0;
-  };
+  let inner = "";
 
-  const flushLine = () => {
-    if (!currentLine.trim()) {
-      currentY -= lineGap;
-      lineCount += 1;
-      currentLine = "";
-      if (currentY < bottom + lineGap) startNewPage();
-      return;
-    }
-
-    currentPage.drawText(currentLine.trim(), {
-      x: left,
-      y: lineTop - fontSize,
-      size: fontSize,
-      font,
-      color: rgb(0.12, 0.12, 0.18),
-      charSpacing: 0.3,
-    });
-
-    currentY -= lineGap;
-    lineCount += 1;
-    currentLine = "";
-    if (currentY < bottom + lineGap) startNewPage();
-    lineTop = currentY;
-  };
-
-  drawPaper(currentPage);
-
-  for (const word of words) {
-    if (word === "\n") {
-      flushLine();
-      continue;
-    }
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    const textWidth = font.widthOfTextAtSize(testLine, fontSize);
-    if (textWidth > usableWidth) {
-      flushLine();
-      currentLine = word;
-    } else {
-      currentLine = testLine;
-    }
+  // Grid lines + Y axis labels
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + plotH - (i / 4) * plotH;
+    const v = Math.round((maxVal * i) / 4);
+    inner += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#c8cee8" stroke-width="0.8" stroke-dasharray="4,3"/>`;
+    inner += `<text x="${padL - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="9" fill="#888">${v}</text>`;
   }
 
-  flushLine();
-  return pdfDoc;
+  if (type === "bar") {
+    const gap = plotW / labels.length;
+    const barW = gap * 0.55;
+    const barOffset = gap * 0.225;
+    labels.forEach((label, i) => {
+      const barH = Math.max((values[i] / maxVal) * plotH, 2);
+      const x = padL + i * gap + barOffset;
+      const y = padT + plotH - barH;
+      // Shadow bar
+      inner += `<rect x="${(x + 2).toFixed(1)}" y="${(y + 2).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="rgba(60,100,220,0.12)" rx="3"/>`;
+      // Main bar
+      inner += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="#4F7BE8" rx="3"/>`;
+      // Value label
+      inner += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" font-size="9" fill="#333">${values[i]}</text>`;
+      // X axis label
+      const labelText =
+        label.length > 8 ? label.slice(0, 7) + "…" : label;
+      inner += `<text x="${(x + barW / 2).toFixed(1)}" y="${(padT + plotH + 16).toFixed(1)}" text-anchor="middle" font-size="9" fill="#555">${escHtml(labelText)}</text>`;
+    });
+  } else {
+    // Line chart
+    const n = labels.length;
+    const xStep = n > 1 ? plotW / (n - 1) : plotW / 2;
+    const points = labels.map((_, i) => {
+      const x = padL + (n > 1 ? i * xStep : plotW / 2);
+      const y = padT + plotH - (values[i] / maxVal) * plotH;
+      return { x, y };
+    });
+
+    // Area fill
+    if (points.length >= 2) {
+      const areaPoints =
+        `${points[0].x.toFixed(1)},${(padT + plotH).toFixed(1)} ` +
+        points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") +
+        ` ${points[n - 1].x.toFixed(1)},${(padT + plotH).toFixed(1)}`;
+      inner += `<polygon points="${areaPoints}" fill="rgba(79,123,232,0.12)"/>`;
+    }
+
+    // Line
+    const polyPts = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    inner += `<polyline points="${polyPts}" fill="none" stroke="#4F7BE8" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+
+    // Dots + labels
+    points.forEach((p, i) => {
+      inner += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#4F7BE8" stroke="white" stroke-width="1.5"/>`;
+      inner += `<text x="${p.x.toFixed(1)}" y="${(p.y - 9).toFixed(1)}" text-anchor="middle" font-size="9" fill="#333">${values[i]}</text>`;
+      const labelText =
+        labels[i].length > 8 ? labels[i].slice(0, 7) + "…" : labels[i];
+      inner += `<text x="${p.x.toFixed(1)}" y="${(padT + plotH + 16).toFixed(1)}" text-anchor="middle" font-size="9" fill="#555">${escHtml(labelText)}</text>`;
+    });
+  }
+
+  // Axes
+  inner += `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="#555" stroke-width="1.5"/>`;
+  inner += `<line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="#555" stroke-width="1.5"/>`;
+
+  // Chart title
+  if (chartTitle) {
+    inner += `<text x="${(W / 2).toFixed(1)}" y="${(padT - 12).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">${escHtml(chartTitle)}</text>`;
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">${inner}</svg>`;
 }
+
+function buildHandwritingHtml({
+  contentType,
+  title,
+  body,
+  fontInfo,
+  paperStyle,
+  sizeConfig,
+  chartConfig,
+}) {
+  const { fontSize, lineHeight: lh } = sizeConfig;
+
+  const bgColor = paperStyle === "yellow" ? "#FFFBF0" : "#FFFFFF";
+  const lineClr =
+    paperStyle === "yellow"
+      ? "rgba(185,145,38,0.38)"
+      : "rgba(145,165,215,0.65)";
+  const marginClr =
+    paperStyle === "yellow"
+      ? "rgba(218,88,48,0.38)"
+      : "rgba(235,100,100,0.42)";
+
+  let bgImage = "";
+  let paddingLeft = "62px";
+
+  if (paperStyle === "lined" || paperStyle === "yellow") {
+    bgImage = `background-image:
+      linear-gradient(90deg, transparent 67px, ${marginClr} 67px, ${marginClr} 69px, transparent 69px),
+      repeating-linear-gradient(
+        to bottom,
+        transparent,
+        transparent ${lh - 1}px,
+        ${lineClr} ${lh - 1}px,
+        ${lineClr} ${lh}px
+      );`;
+    paddingLeft = "82px";
+  } else if (paperStyle === "graph") {
+    bgImage = `background-image:
+      linear-gradient(rgba(140,162,215,0.45) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(140,162,215,0.45) 1px, transparent 1px);
+    background-size: 20px 20px;`;
+    paddingLeft = "60px";
+  }
+
+  const titleHtml =
+    contentType !== "text" && title
+      ? `<h1 class="page-title">${escHtml(title)}</h1>`
+      : "";
+
+  const bodyHtml =
+    contentType !== "title-chart" && body
+      ? `<p class="body-text">${escHtml(body).replace(/\n/g, "<br/>")}</p>`
+      : "";
+
+  const chartSvg = chartConfig ? buildChartSvg(chartConfig) : "";
+  const chartHtml = chartSvg
+    ? `<div class="chart-wrap">${chartSvg}</div>`
+    : "";
+
+  const titleFontSize = Math.round(fontSize * 1.8);
+  const titleLineH = Math.round(lh * 1.5);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=${fontInfo.url}&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: '${fontInfo.name}', cursive;
+  font-size: ${fontSize}px;
+  line-height: ${lh}px;
+  color: #1a1a2c;
+  background-color: ${bgColor};
+  ${bgImage}
+  padding: 50px 52px 60px ${paddingLeft};
+  letter-spacing: 0.35px;
+  word-spacing: 2.5px;
+  text-shadow: 0.4px 0.4px 0.6px rgba(0,0,25,0.11);
+  min-height: 100vh;
+}
+.page-title {
+  font-family: '${fontInfo.name}', cursive;
+  font-size: ${titleFontSize}px;
+  line-height: ${titleLineH}px;
+  font-weight: 700;
+  color: #1a1a2c;
+  letter-spacing: 0.5px;
+  text-shadow: 0.5px 0.5px 0.8px rgba(0,0,25,0.14);
+  margin-bottom: ${Math.round(lh * 0.6)}px;
+}
+.body-text {
+  white-space: pre-wrap;
+}
+.chart-wrap {
+  margin-top: ${Math.round(lh * 1.2)}px;
+  display: block;
+}
+</style>
+</head>
+<body>
+${titleHtml}
+${bodyHtml}
+${chartHtml}
+</body>
+</html>`;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HandwritingScreen({ navigation }) {
   const { colors, isDark } = useTheme();
   const { guard, modal } = useProGate();
 
+  const [contentType, setContentType] = useState("text");
+  const [title, setTitle] = useState("");
   const [text, setText] = useState("");
+
+  // Chart state
+  const [chartType, setChartType] = useState("bar");
+  const [chartTitle, setChartTitle] = useState("");
+  const [chartLabels, setChartLabels] = useState("Jan,Feb,Mar,Apr,May");
+  const [chartValues, setChartValues] = useState("40,65,30,80,55");
+
   const [selectedFont, setSelectedFont] = useState("caveat");
   const [paperStyle, setPaperStyle] = useState("lined");
   const [textSize, setTextSize] = useState("medium");
@@ -210,47 +312,99 @@ export default function HandwritingScreen({ navigation }) {
   const [result, setResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const sizeConfig = TEXT_SIZES.find((s) => s.id === textSize) || TEXT_SIZES[1];
+  const sizeConfig =
+    TEXT_SIZES.find((s) => s.id === textSize) || TEXT_SIZES[1];
+  const fontInfo =
+    HANDWRITING_FONTS.find((f) => f.id === selectedFont) || HANDWRITING_FONTS[0];
+  const hw = colors.handwriting || { bg: "#FFFBF0", icon: "#D97706" };
+
+  const validateAndParseChart = () => {
+    const labels = chartLabels
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const values = chartValues
+      .split(",")
+      .map((s) => parseFloat(s.trim()))
+      .filter((n) => !isNaN(n));
+
+    if (labels.length < 2) {
+      throw new Error("Enter at least 2 labels (comma-separated).");
+    }
+    if (values.length !== labels.length) {
+      throw new Error(
+        `Labels count (${labels.length}) must match values count (${values.length}).`
+      );
+    }
+    if (chartType === "line" && labels.length < 2) {
+      throw new Error("Line graph needs at least 2 data points.");
+    }
+    return { type: chartType, labels, values, chartTitle: chartTitle.trim() };
+  };
 
   const generate = async () => {
-    if (!text.trim()) {
-      Alert.alert(
-        "No text",
-        "Please type or paste your assignment text first.",
-      );
+    const needsBody = contentType !== "title-chart";
+    const needsTitle = contentType !== "text";
+    const needsChart = contentType === "title-chart";
+
+    if (needsBody && !text.trim()) {
+      Alert.alert("No text", "Please type or paste your text first.");
       return;
     }
+    if (needsTitle && !title.trim()) {
+      Alert.alert("No title", "Please enter a title.");
+      return;
+    }
+
+    let chartConfig = null;
+    if (needsChart) {
+      try {
+        chartConfig = validateAndParseChart();
+      } catch (e) {
+        Alert.alert("Chart data error", e.message);
+        return;
+      }
+    }
+
     await guard(false, "You've used all 3 free operations today", async () => {
       setStatus("processing");
-      setProgress(0.2);
+      setProgress(0.15);
       setErrorMsg("");
+
       try {
-        const pdfDoc = await buildHandwritingPdf(
-          text.trim(),
+        const html = buildHandwritingHtml({
+          contentType,
+          title: title.trim(),
+          body: text.trim(),
+          fontInfo,
           paperStyle,
           sizeConfig,
-        );
-        setProgress(0.5);
-        const info = await FileSystem.getInfoAsync(OUTPUT_DIR);
-        if (!info.exists)
+          chartConfig,
+        });
+
+        setProgress(0.4);
+
+        const { uri } = await Print.printToFileAsync({ html, base64: false });
+
+        setProgress(0.7);
+
+        const dirInfo = await FileSystem.getInfoAsync(OUTPUT_DIR);
+        if (!dirInfo.exists) {
           await FileSystem.makeDirectoryAsync(OUTPUT_DIR, {
             intermediates: true,
           });
+        }
 
         const outputName = generateOutputName("handwriting");
         const outputPath = OUTPUT_DIR + outputName;
-        const pdfBytes = await pdfDoc.save();
-        await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
+        await FileSystem.copyAsync({ from: uri, to: outputPath });
+
         setProgress(1);
 
         const fileInfo = await FileSystem.getInfoAsync(outputPath, {
           size: true,
         });
-        setResult({
-          path: outputPath,
-          name: outputName,
-          size: fileInfo.size || 0,
-        });
+        setResult({ path: outputPath, name: outputName, size: fileInfo.size || 0 });
         setStatus("done");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
@@ -274,9 +428,7 @@ export default function HandwritingScreen({ navigation }) {
     setErrorMsg("");
   };
 
-  const hw = colors.handwriting || { bg: "#FFFBF0", icon: "#D97706" };
-
-  // ─── Processing ───────────────────────────────────────────────────────────
+  // ─── Processing ─────────────────────────────────────────────────────────────
   if (status === "processing") {
     return (
       <SafeAreaView
@@ -285,10 +437,10 @@ export default function HandwritingScreen({ navigation }) {
         <View style={styles.center}>
           <Ionicons name="pencil" size={64} color={hw.icon} />
           <Text style={[styles.procTitle, { color: colors.text }]}>
-            Generating Handwriting…
+            Generating PDF…
           </Text>
           <Text style={[styles.procSub, { color: colors.textSecondary }]}>
-            Turning your text into a handwritten PDF
+            Laying out your handwritten document
           </Text>
           <View style={styles.progWrap}>
             <ProgressBar progress={progress} color={hw.icon} />
@@ -302,7 +454,7 @@ export default function HandwritingScreen({ navigation }) {
     );
   }
 
-  // ─── Done ────────────────────────────────────────────────────────────────
+  // ─── Done ────────────────────────────────────────────────────────────────────
   if (status === "done" && result) {
     return (
       <SafeAreaView
@@ -317,7 +469,7 @@ export default function HandwritingScreen({ navigation }) {
             Handwriting PDF Ready!
           </Text>
           <Text style={[styles.resultSub, { color: colors.textSecondary }]}>
-            Your typed text is now a handwritten document
+            Your document has been generated
           </Text>
 
           <View
@@ -326,43 +478,38 @@ export default function HandwritingScreen({ navigation }) {
               { backgroundColor: colors.surface, borderColor: colors.border },
             ]}
           >
-            <View
-              style={[styles.resultRow, { borderBottomColor: colors.border }]}
-            >
-              <Text
-                style={[styles.resultLabel, { color: colors.textSecondary }]}
+            {[
+              ["Font", fontInfo.label],
+              ["Paper", PAPER_STYLES.find((p) => p.id === paperStyle)?.label],
+              [
+                "Content",
+                CONTENT_TYPES.find((c) => c.id === contentType)?.label,
+              ],
+              ["File", result.name],
+            ].map(([label, value], i, arr) => (
+              <View
+                key={label}
+                style={[
+                  styles.resultRow,
+                  i < arr.length - 1 && {
+                    borderBottomWidth: 1,
+                    borderBottomColor: colors.border,
+                  },
+                ]}
               >
-                Font
-              </Text>
-              <Text style={[styles.resultValue, { color: colors.text }]}>
-                {FONTS_LIST.find((f) => f.id === selectedFont)?.label}
-              </Text>
-            </View>
-            <View
-              style={[styles.resultRow, { borderBottomColor: colors.border }]}
-            >
-              <Text
-                style={[styles.resultLabel, { color: colors.textSecondary }]}
-              >
-                Paper
-              </Text>
-              <Text style={[styles.resultValue, { color: colors.text }]}>
-                {PAPER_STYLES.find((p) => p.id === paperStyle)?.label}
-              </Text>
-            </View>
-            <View style={styles.resultRow}>
-              <Text
-                style={[styles.resultLabel, { color: colors.textSecondary }]}
-              >
-                File
-              </Text>
-              <Text
-                style={[styles.resultValue, { color: colors.text }]}
-                numberOfLines={1}
-              >
-                {result.name}
-              </Text>
-            </View>
+                <Text
+                  style={[styles.resultLabel, { color: colors.textSecondary }]}
+                >
+                  {label}
+                </Text>
+                <Text
+                  style={[styles.resultValue, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {value}
+                </Text>
+              </View>
+            ))}
           </View>
 
           <PrimaryButton
@@ -382,18 +529,14 @@ export default function HandwritingScreen({ navigation }) {
             onPress={shareResult}
             style={[styles.btn, { backgroundColor: "#22C55E" }]}
           />
-          <SecondaryButton
-            title="Make Another"
-            onPress={reset}
-            style={styles.btn}
-          />
+          <SecondaryButton title="Make Another" onPress={reset} style={styles.btn} />
         </ScrollView>
         {modal}
       </SafeAreaView>
     );
   }
 
-  // ─── Main editor ─────────────────────────────────────────────────────────
+  // ─── Main editor ─────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
@@ -433,12 +576,12 @@ export default function HandwritingScreen({ navigation }) {
               ✍️ Type → Handwritten PDF
             </Text>
             <Text style={[styles.viralSub, { color: colors.textSecondary }]}>
-              Type your assignment, choose a handwriting style, and get a
-              realistic handwritten PDF — perfect for school submissions!
+              Real handwriting fonts, lined/graph paper, large titles, and
+              charts — all in one PDF.
             </Text>
           </View>
 
-          {/* Text Input */}
+          {/* Content Type */}
           <View
             style={[
               styles.section,
@@ -446,31 +589,231 @@ export default function HandwritingScreen({ navigation }) {
             ]}
           >
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Your Text
+              Content Type
             </Text>
-            <TextInput
-              style={[
-                styles.textArea,
-                {
-                  color: colors.text,
-                  borderColor: colors.border,
-                  backgroundColor: colors.surfaceAlt,
-                },
-              ]}
-              value={text}
-              onChangeText={setText}
-              placeholder="Type or paste your assignment text here…"
-              placeholderTextColor={colors.textLight}
-              multiline
-              textAlignVertical="top"
-              maxLength={5000}
-            />
-            <Text style={[styles.charCount, { color: colors.textLight }]}>
-              {text.length}/5000 characters
-            </Text>
+            <View style={styles.typeRow}>
+              {CONTENT_TYPES.map((ct) => (
+                <TouchableOpacity
+                  key={ct.id}
+                  style={[
+                    styles.typeBtn,
+                    {
+                      borderColor:
+                        contentType === ct.id ? hw.icon : colors.border,
+                      backgroundColor:
+                        contentType === ct.id ? hw.bg : colors.background,
+                    },
+                  ]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setContentType(ct.id);
+                  }}
+                >
+                  <Ionicons
+                    name={ct.icon}
+                    size={18}
+                    color={contentType === ct.id ? hw.icon : colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.typeBtnLabel,
+                      {
+                        color:
+                          contentType === ct.id ? hw.icon : colors.textSecondary,
+                      },
+                    ]}
+                  >
+                    {ct.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
-          {/* Font Selector */}
+          {/* Title Input (shown for title-text and title-chart) */}
+          {contentType !== "text" && (
+            <View
+              style={[
+                styles.section,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                Page Title
+              </Text>
+              <TextInput
+                style={[
+                  styles.titleInput,
+                  {
+                    color: colors.text,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surfaceAlt,
+                  },
+                ]}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Enter a large heading title…"
+                placeholderTextColor={colors.textLight}
+                maxLength={120}
+              />
+            </View>
+          )}
+
+          {/* Body Text (shown for text and title-text) */}
+          {contentType !== "title-chart" && (
+            <View
+              style={[
+                styles.section,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                {contentType === "title-text" ? "Body Text" : "Your Text"}
+              </Text>
+              <TextInput
+                style={[
+                  styles.textArea,
+                  {
+                    color: colors.text,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surfaceAlt,
+                  },
+                ]}
+                value={text}
+                onChangeText={setText}
+                placeholder="Type or paste your text here…"
+                placeholderTextColor={colors.textLight}
+                multiline
+                textAlignVertical="top"
+                maxLength={5000}
+              />
+              <Text style={[styles.charCount, { color: colors.textLight }]}>
+                {text.length}/5000
+              </Text>
+            </View>
+          )}
+
+          {/* Chart Config (shown for title-chart) */}
+          {contentType === "title-chart" && (
+            <View
+              style={[
+                styles.section,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                Chart / Graph
+              </Text>
+
+              {/* Chart type */}
+              <View style={styles.chartTypeRow}>
+                {CHART_TYPES.map((ct) => (
+                  <TouchableOpacity
+                    key={ct.id}
+                    style={[
+                      styles.chartTypeBtn,
+                      {
+                        borderColor:
+                          chartType === ct.id ? hw.icon : colors.border,
+                        backgroundColor:
+                          chartType === ct.id ? hw.bg : colors.background,
+                      },
+                    ]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setChartType(ct.id);
+                    }}
+                  >
+                    <Ionicons
+                      name={ct.icon}
+                      size={18}
+                      color={
+                        chartType === ct.id ? hw.icon : colors.textSecondary
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.chartTypeBtnLabel,
+                        {
+                          color:
+                            chartType === ct.id ? hw.icon : colors.textSecondary,
+                        },
+                      ]}
+                    >
+                      {ct.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Chart title */}
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                Chart Title (optional)
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    color: colors.text,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surfaceAlt,
+                  },
+                ]}
+                value={chartTitle}
+                onChangeText={setChartTitle}
+                placeholder="e.g. Monthly Sales"
+                placeholderTextColor={colors.textLight}
+                maxLength={60}
+              />
+
+              {/* Labels */}
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                Labels (comma-separated)
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    color: colors.text,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surfaceAlt,
+                  },
+                ]}
+                value={chartLabels}
+                onChangeText={setChartLabels}
+                placeholder="Jan,Feb,Mar,Apr,May"
+                placeholderTextColor={colors.textLight}
+                autoCapitalize="none"
+              />
+
+              {/* Values */}
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+                Values (comma-separated numbers)
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    color: colors.text,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surfaceAlt,
+                  },
+                ]}
+                value={chartValues}
+                onChangeText={setChartValues}
+                placeholder="40,65,30,80,55"
+                placeholderTextColor={colors.textLight}
+                keyboardType="default"
+                autoCapitalize="none"
+              />
+
+              <Text style={[styles.chartHint, { color: colors.textLight }]}>
+                Labels and values count must match.
+              </Text>
+            </View>
+          )}
+
+          {/* Handwriting Style */}
           <View
             style={[
               styles.section,
@@ -481,7 +824,7 @@ export default function HandwritingScreen({ navigation }) {
               Handwriting Style
             </Text>
             <View style={styles.fontGrid}>
-              {FONTS_LIST.map((f) => (
+              {HANDWRITING_FONTS.map((f) => (
                 <TouchableOpacity
                   key={f.id}
                   style={[
@@ -503,9 +846,7 @@ export default function HandwritingScreen({ navigation }) {
                       styles.fontSample,
                       {
                         color:
-                          selectedFont === f.id
-                            ? hw.icon
-                            : colors.textSecondary,
+                          selectedFont === f.id ? hw.icon : colors.textSecondary,
                       },
                     ]}
                   >
@@ -516,9 +857,7 @@ export default function HandwritingScreen({ navigation }) {
                       styles.fontLabel,
                       {
                         color:
-                          selectedFont === f.id
-                            ? hw.icon
-                            : colors.textSecondary,
+                          selectedFont === f.id ? hw.icon : colors.textSecondary,
                       },
                     ]}
                   >
@@ -560,14 +899,18 @@ export default function HandwritingScreen({ navigation }) {
                   <Ionicons
                     name={p.icon}
                     size={20}
-                    color={paperStyle === p.id ? hw.icon : colors.textSecondary}
+                    color={
+                      paperStyle === p.id ? hw.icon : colors.textSecondary
+                    }
                   />
                   <Text
                     style={[
                       styles.paperLabel,
                       {
                         color:
-                          paperStyle === p.id ? hw.icon : colors.textSecondary,
+                          paperStyle === p.id
+                            ? hw.icon
+                            : colors.textSecondary,
                       },
                     ]}
                   >
@@ -595,7 +938,8 @@ export default function HandwritingScreen({ navigation }) {
                   style={[
                     styles.sizeBtn,
                     {
-                      borderColor: textSize === s.id ? hw.icon : colors.border,
+                      borderColor:
+                        textSize === s.id ? hw.icon : colors.border,
                       backgroundColor:
                         textSize === s.id ? hw.bg : colors.background,
                     },
@@ -652,9 +996,10 @@ export default function HandwritingScreen({ navigation }) {
               Tips for best results
             </Text>
             {[
-              "Keep sentences natural — handwriting looks best at 80–120 words per page",
-              "Use lined or notepad paper for exam/assignment style",
-              "Requires internet to load handwriting fonts the first time",
+              "Uses real Google handwriting fonts — requires internet on first generation",
+              "Lined & notepad paper aligns perfectly with the text baseline",
+              "Use Title + Chart for diagrams; Title + Body for long assignments",
+              "Bar chart: great for comparisons; Line graph: great for trends",
             ].map((tip, i) => (
               <View key={i} style={styles.tipRow}>
                 <Ionicons name="checkmark-circle" size={14} color="#22C55E" />
@@ -684,7 +1029,6 @@ export default function HandwritingScreen({ navigation }) {
           title="Generate Handwriting PDF"
           iconName="pencil"
           onPress={generate}
-          disabled={!text.trim()}
           style={[styles.actionBtn, { backgroundColor: hw.icon }]}
         />
       </View>
@@ -692,6 +1036,8 @@ export default function HandwritingScreen({ navigation }) {
     </SafeAreaView>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
@@ -742,17 +1088,83 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.weights.bold,
     marginBottom: SPACING.md,
   },
+
+  // Content type
+  typeRow: { flexDirection: "row", gap: SPACING.sm },
+  typeBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderRadius: RADIUS.md,
+    padding: SPACING.sm,
+    alignItems: "center",
+    gap: 4,
+  },
+  typeBtnLabel: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.semiBold,
+    textAlign: "center",
+  },
+
+  // Title input
+  titleInput: {
+    borderWidth: 1.5,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    fontSize: FONTS.sizes.lg,
+    fontWeight: FONTS.weights.semiBold,
+  },
+
+  // Text area
   textArea: {
     borderWidth: 1.5,
     borderRadius: RADIUS.md,
     padding: SPACING.md,
     fontSize: FONTS.sizes.base,
-    minHeight: 160,
-    maxHeight: 300,
+    minHeight: 150,
+    maxHeight: 280,
     lineHeight: 22,
   },
   charCount: { fontSize: FONTS.sizes.xs, textAlign: "right", marginTop: 4 },
 
+  // Chart
+  chartTypeRow: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  chartTypeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    borderWidth: 1.5,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    justifyContent: "center",
+  },
+  chartTypeBtnLabel: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.semiBold,
+  },
+  fieldLabel: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.medium,
+    marginBottom: 6,
+    marginTop: SPACING.sm,
+  },
+  fieldInput: {
+    borderWidth: 1.5,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    fontSize: FONTS.sizes.base,
+  },
+  chartHint: {
+    fontSize: FONTS.sizes.xs,
+    marginTop: SPACING.sm,
+    textAlign: "center",
+  },
+
+  // Font
   fontGrid: { flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm },
   fontCard: {
     flex: 1,
@@ -766,6 +1178,7 @@ const styles = StyleSheet.create({
   fontSample: { fontSize: 16, fontStyle: "italic" },
   fontLabel: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.semiBold },
 
+  // Paper
   paperRow: { flexDirection: "row", gap: SPACING.sm },
   paperBtn: {
     flex: 1,
@@ -777,6 +1190,7 @@ const styles = StyleSheet.create({
   },
   paperLabel: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.semiBold },
 
+  // Size
   sizeRow: { flexDirection: "row", gap: SPACING.sm },
   sizeBtn: {
     flex: 1,
@@ -789,6 +1203,7 @@ const styles = StyleSheet.create({
   sizeBtnText: { fontWeight: FONTS.weights.extraBold },
   sizeLabel: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.semiBold },
 
+  // Tips
   tipsBox: {
     borderRadius: RADIUS.xl,
     padding: SPACING.md,
@@ -804,6 +1219,7 @@ const styles = StyleSheet.create({
   tipRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   tipText: { fontSize: FONTS.sizes.xs, flex: 1, lineHeight: 16 },
 
+  // Bottom bar
   bottomBar: {
     position: "absolute",
     bottom: 0,
@@ -814,6 +1230,7 @@ const styles = StyleSheet.create({
   },
   actionBtn: { width: "100%" },
 
+  // Result
   resultContainer: {
     flexGrow: 1,
     alignItems: "center",
@@ -850,7 +1267,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     paddingVertical: 10,
-    borderBottomWidth: 1,
   },
   resultLabel: { fontSize: FONTS.sizes.sm },
   resultValue: {
@@ -861,6 +1277,7 @@ const styles = StyleSheet.create({
   },
   btn: { width: "100%", marginBottom: SPACING.sm },
 
+  // Error
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
