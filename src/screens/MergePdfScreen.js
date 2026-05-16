@@ -1,23 +1,28 @@
-// src/screens/MergePdfScreen.js
 import React, { useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   SafeAreaView,
   StatusBar,
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import DraggableFlatList from 'react-native-draggable-flatlist';
+import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
-import { COLORS, FONTS, SPACING, RADIUS, SHADOW } from '../utils/theme';
-import { PrimaryButton, SecondaryButton, SectionHeader, ProgressBar, FileItem } from '../components/UIComponents';
+import * as Haptics from 'expo-haptics';
+import { useTheme } from '../context/ThemeContext';
+import { useProGate } from '../components/ProGate';
+import { PrimaryButton, SecondaryButton, ProgressBar, ScreenHeader } from '../components/UIComponents';
 import { mergePdfs } from '../utils/pdfOperations';
 import { formatFileSize } from '../utils/pdfHelpers';
+import { FONTS, SPACING, RADIUS, SHADOW } from '../utils/theme';
 
 export default function MergePdfScreen({ navigation }) {
+  const { colors, isDark } = useTheme();
+  const { guard, modal } = useProGate();
   const [files, setFiles] = useState([]);
   const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState(0);
@@ -26,35 +31,19 @@ export default function MergePdfScreen({ navigation }) {
 
   const pickPdfs = async () => {
     try {
-      const res = await DocumentPicker.getDocumentAsync({
-        type: 'application/pdf',
-        multiple: true,
-        copyToCacheDirectory: true,
-      });
+      const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', multiple: true, copyToCacheDirectory: true });
       if (!res.canceled) {
-        setFiles((prev) => [...prev, ...res.assets]);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setFiles((prev) => [...prev, ...res.assets.map((a, i) => ({ ...a, key: `${Date.now()}-${i}` }))]);
       }
     } catch (e) {
       Alert.alert('Error', 'Could not open file picker');
     }
   };
 
-  const removeFile = (index) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const moveUp = (index) => {
-    if (index === 0) return;
-    const arr = [...files];
-    [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]];
-    setFiles(arr);
-  };
-
-  const moveDown = (index) => {
-    if (index === files.length - 1) return;
-    const arr = [...files];
-    [arr[index], arr[index + 1]] = [arr[index + 1], arr[index]];
-    setFiles(arr);
+  const removeFile = (key) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setFiles((prev) => prev.filter((f) => f.key !== key));
   };
 
   const merge = async () => {
@@ -62,18 +51,22 @@ export default function MergePdfScreen({ navigation }) {
       Alert.alert('Select at least 2 PDFs', 'You need 2 or more PDF files to merge.');
       return;
     }
-    setStatus('processing');
-    setProgress(0);
-    setErrorMsg('');
-    try {
-      const uris = files.map((f) => f.uri);
-      const res = await mergePdfs(uris, setProgress);
-      setResult(res);
-      setStatus('done');
-    } catch (e) {
-      setErrorMsg(e.message);
-      setStatus('error');
-    }
+    await guard(false, "You've used all 3 free operations today", async () => {
+      setStatus('processing');
+      setProgress(0);
+      setErrorMsg('');
+      try {
+        const uris = files.map((f) => f.uri);
+        const res = await mergePdfs(uris, setProgress);
+        setResult(res);
+        setStatus('done');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (e) {
+        setErrorMsg(e.message);
+        setStatus('error');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    });
   };
 
   const shareResult = async () => {
@@ -82,309 +75,186 @@ export default function MergePdfScreen({ navigation }) {
     }
   };
 
-  const reset = () => {
-    setFiles([]);
-    setStatus('idle');
-    setProgress(0);
-    setResult(null);
-    setErrorMsg('');
-  };
+  const reset = () => { setFiles([]); setStatus('idle'); setProgress(0); setResult(null); setErrorMsg(''); };
 
-  // ── DONE ──
+  const renderDragItem = ({ item, drag, isActive }) => (
+    <View style={[styles.fileRow, { backgroundColor: isActive ? colors.mergePdf?.icon + '18' : colors.surface, borderColor: isActive ? colors.mergePdf?.icon : colors.border }]}>
+      <TouchableOpacity onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }} delayLongPress={150}>
+        <Ionicons name="reorder-three" size={22} color={colors.textLight} style={{ paddingHorizontal: 4 }} />
+      </TouchableOpacity>
+      <View style={[styles.fileOrderBadge, { backgroundColor: colors.mergePdf?.bg }]}>
+        <Text style={[styles.fileOrderText, { color: colors.mergePdf?.icon }]}>{files.findIndex(f => f.key === item.key) + 1}</Text>
+      </View>
+      <View style={styles.fileInfo}>
+        <Text style={[styles.fileName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
+        <Text style={[styles.fileSize, { color: colors.textLight }]}>{formatFileSize(item.size)}</Text>
+      </View>
+      <TouchableOpacity onPress={() => removeFile(item.key)} style={styles.removeBtn}>
+        <Ionicons name="close" size={14} color={colors.error} />
+      </TouchableOpacity>
+    </View>
+  );
+
   if (status === 'done' && result) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <ScrollView contentContainerStyle={styles.resultContainer}>
-          <Text style={styles.successIcon}>🔗</Text>
-          <Text style={styles.resultTitle}>PDFs Merged!</Text>
-          <Text style={styles.resultSub}>{files.length} files combined into one PDF</Text>
-          <View style={styles.resultCard}>
-            <View style={styles.resultRow}>
-              <Text style={styles.resultLabel}>Output File</Text>
-              <Text style={styles.resultValue} numberOfLines={1}>{result.name}</Text>
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
+        <View style={styles.resultContainer}>
+          <View style={[styles.successIcon, { backgroundColor: colors.mergePdf?.bg }]}>
+            <Ionicons name="git-merge" size={56} color={colors.mergePdf?.icon} />
+          </View>
+          <Text style={[styles.resultTitle, { color: colors.text }]}>PDFs Merged!</Text>
+          <Text style={[styles.resultSub, { color: colors.textSecondary }]}>{files.length} files combined into one PDF</Text>
+          <View style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.resultRow, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.resultLabel, { color: colors.textSecondary }]}>Output File</Text>
+              <Text style={[styles.resultValue, { color: colors.text }]} numberOfLines={1}>{result.name}</Text>
             </View>
             <View style={styles.resultRow}>
-              <Text style={styles.resultLabel}>Files Merged</Text>
-              <Text style={styles.resultValue}>{files.length}</Text>
+              <Text style={[styles.resultLabel, { color: colors.textSecondary }]}>Files Merged</Text>
+              <Text style={[styles.resultValue, { color: colors.text }]}>{files.length}</Text>
             </View>
           </View>
-          <PrimaryButton title="Share / Save PDF" icon="📤" onPress={shareResult} style={styles.btn} />
+          <PrimaryButton title="Share / Save PDF" iconName="share-outline" onPress={shareResult} style={styles.btn} />
           <SecondaryButton title="Merge More PDFs" onPress={reset} style={styles.btn} />
-        </ScrollView>
+        </View>
+        {modal}
       </SafeAreaView>
     );
   }
 
-  // ── PROCESSING ──
   if (status === 'processing') {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <View style={styles.processingContainer}>
-          <Text style={styles.processingIcon}>🔗</Text>
-          <Text style={styles.processingTitle}>Merging PDFs…</Text>
-          <Text style={styles.processingSubtitle}>Combining {files.length} files</Text>
+          <Ionicons name="git-merge" size={64} color={colors.mergePdf?.icon} />
+          <Text style={[styles.processingTitle, { color: colors.text }]}>Merging PDFs…</Text>
+          <Text style={[styles.processingSubtitle, { color: colors.textSecondary }]}>Combining {files.length} files</Text>
           <View style={styles.progressWrap}>
-            <ProgressBar progress={progress} color={COLORS.mergePdf.icon} />
-            <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
+            <ProgressBar progress={progress} color={colors.mergePdf?.icon} />
+            <Text style={[styles.progressText, { color: colors.textSecondary }]}>{Math.round(progress * 100)}%</Text>
           </View>
         </View>
+        {modal}
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-      <View style={styles.screenHeader}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.screenTitle}>Merge PDF</Text>
-        <View style={{ width: 36 }} />
-      </View>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <ScreenHeader title="Merge PDF" onBack={() => navigation.goBack()} />
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
-          {status === 'error' && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>⚠️ {errorMsg}</Text>
-            </View>
-          )}
-
-          <TouchableOpacity style={styles.pickZone} onPress={pickPdfs} activeOpacity={0.8}>
-            <Text style={styles.pickZoneIcon}>🔗</Text>
-            <Text style={styles.pickZoneTitle}>Select PDF Files</Text>
-            <Text style={styles.pickZoneSubtitle}>Select 2 or more PDFs to merge</Text>
-          </TouchableOpacity>
-
-          {files.length > 0 && (
-            <View style={styles.filesSection}>
-              <SectionHeader
-                title={`Files (${files.length})`}
-                subtitle="Drag arrows to reorder merge sequence"
-              />
-              {files.map((file, index) => (
-                <View key={index} style={styles.fileRow}>
-                  <View style={styles.fileOrder}>
-                    <Text style={styles.fileOrderText}>{index + 1}</Text>
-                  </View>
-                  <View style={styles.fileInfo}>
-                    <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
-                    <Text style={styles.fileSize}>{formatFileSize(file.size)}</Text>
-                  </View>
-                  <View style={styles.fileControls}>
-                    <TouchableOpacity onPress={() => moveUp(index)} style={styles.arrowBtn}>
-                      <Text style={styles.arrowText}>↑</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => moveDown(index)} style={styles.arrowBtn}>
-                      <Text style={styles.arrowText}>↓</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeFile(index)} style={styles.removeBtn}>
-                      <Text style={styles.removeText}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-              <TouchableOpacity style={styles.addMoreBtn} onPress={pickPdfs}>
-                <Text style={styles.addMoreText}>+ Add More PDFs</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+      {status === 'error' && (
+        <View style={[styles.errorBanner, { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }]}>
+          <Ionicons name="warning" size={16} color={colors.error} />
+          <Text style={[styles.errorText, { color: colors.error }]}>{errorMsg}</Text>
         </View>
-      </ScrollView>
+      )}
 
-      <View style={styles.bottomBar}>
+      <TouchableOpacity
+        style={[styles.pickZone, { backgroundColor: colors.mergePdf?.bg || '#EEF2FF', borderColor: colors.mergePdf?.icon }]}
+        onPress={pickPdfs}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="git-merge" size={44} color={colors.mergePdf?.icon} />
+        <Text style={[styles.pickZoneTitle, { color: colors.mergePdf?.icon }]}>Select PDF Files</Text>
+        <Text style={[styles.pickZoneSubtitle, { color: colors.textSecondary }]}>Long-press handle to reorder merge sequence</Text>
+      </TouchableOpacity>
+
+      <DraggableFlatList
+        data={files}
+        keyExtractor={(item) => item.key}
+        onDragEnd={({ data }) => setFiles(data)}
+        renderItem={renderDragItem}
+        contentContainerStyle={styles.listContent}
+        ListFooterComponent={
+          files.length > 0 ? (
+            <TouchableOpacity style={[styles.addMoreBtn, { borderColor: colors.mergePdf?.icon }]} onPress={pickPdfs}>
+              <Ionicons name="add-circle-outline" size={18} color={colors.mergePdf?.icon} />
+              <Text style={[styles.addMoreText, { color: colors.mergePdf?.icon }]}>Add More PDFs</Text>
+            </TouchableOpacity>
+          ) : null
+        }
+      />
+
+      <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <PrimaryButton
           title={files.length >= 2 ? `Merge ${files.length} PDFs` : 'Select at least 2 PDFs'}
-          icon="🔗"
+          iconName="git-merge"
           onPress={merge}
           disabled={files.length < 2}
           style={styles.actionBtn}
         />
       </View>
+      {modal}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { flex: 1 },
-  content: { padding: SPACING.base, paddingBottom: 100 },
-  screenHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.md,
-    backgroundColor: COLORS.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  backIcon: { fontSize: 22, color: COLORS.primary, fontWeight: FONTS.weights.bold },
-  screenTitle: { fontSize: FONTS.sizes.lg, fontWeight: FONTS.weights.bold, color: COLORS.text },
+  safe: { flex: 1 },
   pickZone: {
-    backgroundColor: '#EEF2FF',
     borderWidth: 2,
-    borderColor: COLORS.mergePdf.icon,
     borderStyle: 'dashed',
     borderRadius: RADIUS.xl,
     padding: SPACING.xxl,
     alignItems: 'center',
-    marginBottom: SPACING.lg,
+    margin: SPACING.base,
+    gap: 8,
   },
-  pickZoneIcon: { fontSize: 44, marginBottom: 10 },
-  pickZoneTitle: {
-    fontSize: FONTS.sizes.lg,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.mergePdf.icon,
-    marginBottom: 4,
-  },
-  pickZoneSubtitle: { fontSize: FONTS.sizes.sm, color: COLORS.textSecondary },
-  filesSection: { marginBottom: SPACING.base },
+  pickZoneTitle: { fontSize: FONTS.sizes.lg, fontWeight: FONTS.weights.bold },
+  pickZoneSubtitle: { fontSize: FONTS.sizes.sm, textAlign: 'center' },
+  listContent: { paddingHorizontal: SPACING.base, paddingBottom: 100 },
   fileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
     padding: SPACING.sm,
     marginBottom: SPACING.sm,
     borderWidth: 1,
-    borderColor: COLORS.border,
     gap: SPACING.sm,
     ...SHADOW.sm,
   },
-  fileOrder: {
+  fileOrderBadge: {
     width: 28,
     height: 28,
     borderRadius: 8,
-    backgroundColor: COLORS.mergePdf.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fileOrderText: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.mergePdf.icon,
-  },
+  fileOrderText: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.bold },
   fileInfo: { flex: 1 },
-  fileName: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semiBold, color: COLORS.text },
-  fileSize: { fontSize: FONTS.sizes.xs, color: COLORS.textLight, marginTop: 2 },
-  fileControls: { flexDirection: 'row', gap: 4 },
-  arrowBtn: {
-    width: 28,
-    height: 28,
-    backgroundColor: COLORS.surfaceAlt,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  arrowText: { fontSize: 13, color: COLORS.text },
-  removeBtn: {
-    width: 28,
-    height: 28,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeText: { fontSize: 11, color: COLORS.error },
+  fileName: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semiBold },
+  fileSize: { fontSize: FONTS.sizes.xs, marginTop: 2 },
+  removeBtn: { width: 28, height: 28, backgroundColor: '#FEE2E2', borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   addMoreBtn: {
     borderWidth: 1,
-    borderColor: COLORS.mergePdf.icon,
     borderStyle: 'dashed',
     borderRadius: RADIUS.md,
     padding: SPACING.md,
     alignItems: 'center',
-  },
-  addMoreText: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.mergePdf.icon,
-    fontWeight: FONTS.weights.semiBold,
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.surface,
-    padding: SPACING.base,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  actionBtn: { width: '100%' },
-  processingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: SPACING.xxl,
-  },
-  processingIcon: { fontSize: 64, marginBottom: SPACING.lg },
-  processingTitle: {
-    fontSize: FONTS.sizes.xxl,
-    fontWeight: FONTS.weights.extraBold,
-    color: COLORS.text,
-    marginBottom: 6,
-  },
-  processingSubtitle: {
-    fontSize: FONTS.sizes.md,
-    color: COLORS.textSecondary,
-    marginBottom: SPACING.xl,
-  },
-  progressWrap: { width: '100%', gap: 8 },
-  progressText: {
-    textAlign: 'center',
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textSecondary,
-    fontWeight: FONTS.weights.semiBold,
-  },
-  resultContainer: { flexGrow: 1, alignItems: 'center', padding: SPACING.xl, paddingTop: 60 },
-  successIcon: { fontSize: 72, marginBottom: SPACING.md },
-  resultTitle: {
-    fontSize: FONTS.sizes.xxl,
-    fontWeight: FONTS.weights.extraBold,
-    color: COLORS.text,
-    marginBottom: 6,
-  },
-  resultSub: {
-    fontSize: FONTS.sizes.md,
-    color: COLORS.textSecondary,
-    marginBottom: SPACING.xl,
-    textAlign: 'center',
-  },
-  resultCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.xl,
-    padding: SPACING.lg,
-    width: '100%',
-    marginBottom: SPACING.xl,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    ...SHADOW.sm,
-  },
-  resultRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: SPACING.sm,
   },
-  resultLabel: { fontSize: FONTS.sizes.sm, color: COLORS.textSecondary },
-  resultValue: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.semiBold,
-    color: COLORS.text,
-    maxWidth: '60%',
-    textAlign: 'right',
-  },
+  addMoreText: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semiBold },
+  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: SPACING.base, borderTopWidth: 1 },
+  actionBtn: { width: '100%' },
+  processingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACING.xxl, gap: 12 },
+  processingTitle: { fontSize: FONTS.sizes.xxl, fontWeight: FONTS.weights.extraBold },
+  processingSubtitle: { fontSize: FONTS.sizes.md },
+  progressWrap: { width: '100%', gap: 8 },
+  progressText: { textAlign: 'center', fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semiBold },
+  resultContainer: { flex: 1, alignItems: 'center', padding: SPACING.xl, paddingTop: 60 },
+  successIcon: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.md },
+  resultTitle: { fontSize: FONTS.sizes.xxl, fontWeight: FONTS.weights.extraBold, marginBottom: 6 },
+  resultSub: { fontSize: FONTS.sizes.md, marginBottom: SPACING.xl, textAlign: 'center' },
+  resultCard: { borderRadius: RADIUS.xl, padding: SPACING.lg, width: '100%', marginBottom: SPACING.xl, borderWidth: 1, ...SHADOW.sm },
+  resultRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1 },
+  resultLabel: { fontSize: FONTS.sizes.sm },
+  resultValue: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semiBold, maxWidth: '60%', textAlign: 'right' },
   btn: { width: '100%', marginBottom: SPACING.sm },
-  errorBanner: {
-    backgroundColor: '#FEE2E2',
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.md,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-  },
-  errorText: { fontSize: FONTS.sizes.sm, color: COLORS.error, fontWeight: FONTS.weights.medium },
+  errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: RADIUS.md, padding: SPACING.md, marginHorizontal: SPACING.base, borderWidth: 1 },
+  errorText: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.medium, flex: 1 },
 });

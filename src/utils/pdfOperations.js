@@ -1,5 +1,4 @@
-// src/utils/pdfOperations.js
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import * as FileSystem from 'expo-file-system';
 import {
   readFileAsBase64,
@@ -12,21 +11,13 @@ import {
 
 const OUTPUT_DIR = FileSystem.documentDirectory + 'FoxPDF/';
 
-/**
- * Ensure output directory exists
- */
 async function ensureOutputDir() {
-  const dirInfo = await FileSystem.getInfoAsync(OUTPUT_DIR);
-  if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(OUTPUT_DIR, { intermediates: true });
-  }
+  const info = await FileSystem.getInfoAsync(OUTPUT_DIR);
+  if (!info.exists) await FileSystem.makeDirectoryAsync(OUTPUT_DIR, { intermediates: true });
   return OUTPUT_DIR;
 }
 
-/**
- * IMAGE TO PDF
- * Converts multiple image URIs into a single PDF
- */
+// ─── IMAGE TO PDF ────────────────────────────────────────────────────────────
 export async function imagesToPdf(imageUris, onProgress) {
   try {
     const dir = await ensureOutputDir();
@@ -35,7 +26,6 @@ export async function imagesToPdf(imageUris, onProgress) {
     for (let i = 0; i < imageUris.length; i++) {
       const uri = imageUris[i];
       if (onProgress) onProgress((i / imageUris.length) * 0.9);
-
       try {
         const imageBytes = await imageUriToBytes(uri);
         const ext = uri.split('.').pop()?.toLowerCase();
@@ -45,34 +35,15 @@ export async function imagesToPdf(imageUris, onProgress) {
         if (isJpeg) {
           image = await pdfDoc.embedJpg(imageBytes);
         } else {
-          // PNG or other — try PNG embed, fallback to JPEG
-          try {
-            image = await pdfDoc.embedPng(imageBytes);
-          } catch {
-            image = await pdfDoc.embedJpg(imageBytes);
-          }
+          try { image = await pdfDoc.embedPng(imageBytes); }
+          catch { image = await pdfDoc.embedJpg(imageBytes); }
         }
 
         const { width, height } = image;
-
-        // A4 page size: 595 x 842 points
-        const pageWidth = 595;
-        const pageHeight = 842;
-        const margin = 20;
-
-        const availW = pageWidth - margin * 2;
-        const availH = pageHeight - margin * 2;
-
-        // Scale image to fit page
-        const scaleX = availW / width;
-        const scaleY = availH / height;
-        const scale = Math.min(scaleX, scaleY, 1);
-
-        const scaledW = width * scale;
-        const scaledH = height * scale;
-        const x = (pageWidth - scaledW) / 2;
-        const y = (pageHeight - scaledH) / 2;
-
+        const pageWidth = 595, pageHeight = 842, margin = 20;
+        const scale = Math.min((pageWidth - margin * 2) / width, (pageHeight - margin * 2) / height, 1);
+        const scaledW = width * scale, scaledH = height * scale;
+        const x = (pageWidth - scaledW) / 2, y = (pageHeight - scaledH) / 2;
         const page = pdfDoc.addPage([pageWidth, pageHeight]);
         page.drawImage(image, { x, y, width: scaledW, height: scaledH });
       } catch (err) {
@@ -81,39 +52,29 @@ export async function imagesToPdf(imageUris, onProgress) {
     }
 
     if (onProgress) onProgress(0.95);
-
     const pdfBytes = await pdfDoc.save();
     const base64 = uint8ArrayToBase64(pdfBytes);
-
     const outputName = generateOutputName('images_to_pdf');
     const outputPath = dir + outputName;
     await writeBase64ToFile(base64, outputPath);
-
     if (onProgress) onProgress(1);
-    return { success: true, path: outputPath, name: outputName };
+    return { success: true, path: outputPath, name: outputName, size: pdfBytes.length };
   } catch (error) {
-    console.error('imagesToPdf error:', error);
     throw new Error('Failed to convert images to PDF: ' + error.message);
   }
 }
 
-/**
- * MERGE PDFs
- * Merges multiple PDF files into one
- */
+// ─── MERGE PDFs ──────────────────────────────────────────────────────────────
 export async function mergePdfs(pdfUris, onProgress) {
   try {
     const dir = await ensureOutputDir();
     const mergedPdf = await PDFDocument.create();
 
     for (let i = 0; i < pdfUris.length; i++) {
-      const uri = pdfUris[i];
       if (onProgress) onProgress((i / pdfUris.length) * 0.9);
-
       try {
-        const base64 = await readFileAsBase64(uri);
-        const pdfBytes = base64ToUint8Array(base64);
-        const srcPdf = await PDFDocument.load(pdfBytes);
+        const base64 = await readFileAsBase64(pdfUris[i]);
+        const srcPdf = await PDFDocument.load(base64ToUint8Array(base64));
         const pages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
         pages.forEach((page) => mergedPdf.addPage(page));
       } catch (err) {
@@ -122,175 +83,242 @@ export async function mergePdfs(pdfUris, onProgress) {
     }
 
     if (onProgress) onProgress(0.95);
-
     const mergedBytes = await mergedPdf.save();
     const base64 = uint8ArrayToBase64(mergedBytes);
-
     const outputName = generateOutputName('merged');
     const outputPath = dir + outputName;
     await writeBase64ToFile(base64, outputPath);
-
     if (onProgress) onProgress(1);
     return { success: true, path: outputPath, name: outputName };
   } catch (error) {
-    console.error('mergePdfs error:', error);
     throw new Error('Failed to merge PDFs: ' + error.message);
   }
 }
 
-/**
- * SPLIT PDF
- * Extracts pages from startPage to endPage (1-indexed, inclusive)
- */
+// ─── SPLIT PDF (page range) ──────────────────────────────────────────────────
 export async function splitPdf(pdfUri, startPage, endPage, onProgress) {
   try {
     const dir = await ensureOutputDir();
-
     if (onProgress) onProgress(0.1);
     const base64 = await readFileAsBase64(pdfUri);
-    const pdfBytes = base64ToUint8Array(base64);
-
-    if (onProgress) onProgress(0.3);
-    const srcPdf = await PDFDocument.load(pdfBytes);
+    const srcPdf = await PDFDocument.load(base64ToUint8Array(base64));
     const totalPages = srcPdf.getPageCount();
 
-    // Clamp values
     const start = Math.max(1, Math.min(startPage, totalPages));
     const end = Math.max(start, Math.min(endPage, totalPages));
-
-    if (onProgress) onProgress(0.5);
+    if (onProgress) onProgress(0.4);
 
     const newPdf = await PDFDocument.create();
-    // 0-indexed page indices
-    const pageIndices = [];
-    for (let i = start - 1; i < end; i++) {
-      pageIndices.push(i);
-    }
-
-    const copiedPages = await newPdf.copyPages(srcPdf, pageIndices);
-    copiedPages.forEach((p) => newPdf.addPage(p));
+    const indices = Array.from({ length: end - start + 1 }, (_, i) => start - 1 + i);
+    const copied = await newPdf.copyPages(srcPdf, indices);
+    copied.forEach((p) => newPdf.addPage(p));
 
     if (onProgress) onProgress(0.85);
-
     const newBytes = await newPdf.save();
-    const outBase64 = uint8ArrayToBase64(newBytes);
-
     const outputName = generateOutputName(`split_p${start}-${end}`);
     const outputPath = dir + outputName;
-    await writeBase64ToFile(outBase64, outputPath);
-
+    await writeBase64ToFile(uint8ArrayToBase64(newBytes), outputPath);
     if (onProgress) onProgress(1);
-    return {
-      success: true,
-      path: outputPath,
-      name: outputName,
-      totalPages,
-      extractedPages: end - start + 1,
-    };
+    return { success: true, path: outputPath, name: outputName, totalPages, extractedPages: end - start + 1 };
   } catch (error) {
-    console.error('splitPdf error:', error);
     throw new Error('Failed to split PDF: ' + error.message);
   }
 }
 
-/**
- * COMPRESS PDF
- * Basic compression by re-saving with optimizations
- * Levels: 'low' | 'medium' | 'high'
- */
+// ─── SPLIT ALL PAGES ─────────────────────────────────────────────────────────
+export async function splitAllPages(pdfUri, onProgress) {
+  try {
+    const dir = await ensureOutputDir();
+    if (onProgress) onProgress(0.05);
+    const base64 = await readFileAsBase64(pdfUri);
+    const srcPdf = await PDFDocument.load(base64ToUint8Array(base64));
+    const totalPages = srcPdf.getPageCount();
+
+    for (let i = 0; i < totalPages; i++) {
+      if (onProgress) onProgress(0.05 + (i / totalPages) * 0.9);
+      const pagePdf = await PDFDocument.create();
+      const [page] = await pagePdf.copyPages(srcPdf, [i]);
+      pagePdf.addPage(page);
+      const pageBytes = await pagePdf.save();
+      const outputName = generateOutputName(`page_${i + 1}_of_${totalPages}`);
+      await writeBase64ToFile(uint8ArrayToBase64(pageBytes), dir + outputName);
+    }
+
+    if (onProgress) onProgress(1);
+    return { success: true, totalPages };
+  } catch (error) {
+    throw new Error('Failed to split all pages: ' + error.message);
+  }
+}
+
+// ─── COMPRESS PDF ────────────────────────────────────────────────────────────
 export async function compressPdf(pdfUri, level = 'medium', onProgress) {
   try {
     const dir = await ensureOutputDir();
-
     if (onProgress) onProgress(0.1);
     const base64 = await readFileAsBase64(pdfUri);
     const pdfBytes = base64ToUint8Array(base64);
     const originalSize = pdfBytes.length;
-
     if (onProgress) onProgress(0.3);
 
-    const pdfDoc = await PDFDocument.load(pdfBytes, {
-      ignoreEncryption: true,
-    });
-
+    const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
     if (onProgress) onProgress(0.6);
 
-    // Compression settings based on level
-    const saveOptions = {};
-
-    // pdf-lib's objectsPerTick affects memory/speed tradeoff
-    // For actual size reduction, we re-save which removes unused objects
-    const compressedBytes = await pdfDoc.save({
-      ...saveOptions,
-      useObjectStreams: level !== 'low', // object streams compress more
-    });
-
+    const compressedBytes = await pdfDoc.save({ useObjectStreams: level !== 'low' });
     if (onProgress) onProgress(0.9);
 
-    const compressedBase64 = uint8ArrayToBase64(compressedBytes);
-    const outputName = generateOutputName(`compressed_${level}`);
+    const outputName = generateOutputName(`optimised_${level}`);
     const outputPath = dir + outputName;
-    await writeBase64ToFile(compressedBase64, outputPath);
+    await writeBase64ToFile(uint8ArrayToBase64(compressedBytes), outputPath);
 
     const newSize = compressedBytes.length;
-    const savedPercent = Math.round(((originalSize - newSize) / originalSize) * 100);
-
+    const savedPercent = Math.max(0, Math.round(((originalSize - newSize) / originalSize) * 100));
     if (onProgress) onProgress(1);
-
-    return {
-      success: true,
-      path: outputPath,
-      name: outputName,
-      originalSize,
-      newSize,
-      savedPercent: Math.max(0, savedPercent),
-    };
+    return { success: true, path: outputPath, name: outputName, originalSize, newSize, savedPercent };
   } catch (error) {
-    console.error('compressPdf error:', error);
-    throw new Error('Failed to compress PDF: ' + error.message);
+    throw new Error('Failed to optimise PDF: ' + error.message);
   }
 }
 
-/**
- * Get PDF page count
- */
+// ─── ADD WATERMARK ───────────────────────────────────────────────────────────
+export async function addWatermark(pdfUri, text, opacity = 0.25, onProgress) {
+  try {
+    const dir = await ensureOutputDir();
+    if (onProgress) onProgress(0.1);
+    const base64 = await readFileAsBase64(pdfUri);
+    const pdfDoc = await PDFDocument.load(base64ToUint8Array(base64));
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const pages = pdfDoc.getPages();
+
+    for (let i = 0; i < pages.length; i++) {
+      if (onProgress) onProgress(0.1 + (i / pages.length) * 0.8);
+      const page = pages[i];
+      const { width, height } = page.getSize();
+      const fontSize = Math.min(width, height) * 0.1;
+      page.drawText(text, {
+        x: width * 0.15,
+        y: height * 0.45,
+        size: fontSize,
+        font,
+        color: rgb(0.5, 0.5, 0.5),
+        opacity,
+        rotate: degrees(35),
+      });
+    }
+
+    if (onProgress) onProgress(0.95);
+    const pdfBytes = await pdfDoc.save();
+    const outputName = generateOutputName('watermarked');
+    const outputPath = dir + outputName;
+    await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
+    if (onProgress) onProgress(1);
+    return { success: true, path: outputPath, name: outputName };
+  } catch (error) {
+    throw new Error('Failed to add watermark: ' + error.message);
+  }
+}
+
+// ─── EMBED SIGNATURE ─────────────────────────────────────────────────────────
+export async function embedSignature(pdfUri, signatureBase64, onProgress) {
+  try {
+    const dir = await ensureOutputDir();
+    if (onProgress) onProgress(0.1);
+    const base64 = await readFileAsBase64(pdfUri);
+    const pdfDoc = await PDFDocument.load(base64ToUint8Array(base64));
+
+    if (onProgress) onProgress(0.4);
+    // signature comes as data:image/png;base64,xxxx
+    const sigDataBase64 = signatureBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+    const sigBytes = base64ToUint8Array(sigDataBase64);
+    const sigImage = await pdfDoc.embedPng(sigBytes);
+
+    const pages = pdfDoc.getPages();
+    const lastPage = pages[pages.length - 1];
+    const { width, height } = lastPage.getSize();
+
+    const sigWidth = Math.min(200, width * 0.35);
+    const sigHeight = sigWidth * (sigImage.height / sigImage.width);
+
+    lastPage.drawImage(sigImage, {
+      x: width - sigWidth - 30,
+      y: 30,
+      width: sigWidth,
+      height: sigHeight,
+    });
+
+    if (onProgress) onProgress(0.85);
+    const pdfBytes = await pdfDoc.save();
+    const outputName = generateOutputName('signed');
+    const outputPath = dir + outputName;
+    await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
+    if (onProgress) onProgress(1);
+    return { success: true, path: outputPath, name: outputName };
+  } catch (error) {
+    throw new Error('Failed to embed signature: ' + error.message);
+  }
+}
+
+// ─── PAGE MANAGER ────────────────────────────────────────────────────────────
+export async function managePages(pdfUri, pages, onProgress) {
+  try {
+    const dir = await ensureOutputDir();
+    if (onProgress) onProgress(0.1);
+    const base64 = await readFileAsBase64(pdfUri);
+    const srcPdf = await PDFDocument.load(base64ToUint8Array(base64));
+
+    if (onProgress) onProgress(0.3);
+    const activePagesOrdered = pages.filter((p) => !p.deleted);
+    const newPdf = await PDFDocument.create();
+
+    const indices = activePagesOrdered.map((p) => p.originalIndex);
+    const copiedPages = await newPdf.copyPages(srcPdf, indices);
+
+    copiedPages.forEach((page, i) => {
+      const pageData = activePagesOrdered[i];
+      if (pageData.rotation !== 0) {
+        page.setRotation(degrees(pageData.rotation));
+      }
+      newPdf.addPage(page);
+    });
+
+    if (onProgress) onProgress(0.85);
+    const pdfBytes = await newPdf.save();
+    const outputName = generateOutputName('managed');
+    const outputPath = dir + outputName;
+    await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
+    if (onProgress) onProgress(1);
+    return { success: true, path: outputPath, name: outputName, pageCount: activePagesOrdered.length };
+  } catch (error) {
+    throw new Error('Failed to rebuild PDF: ' + error.message);
+  }
+}
+
+// ─── GET PAGE COUNT ──────────────────────────────────────────────────────────
 export async function getPdfPageCount(uri) {
   try {
     const base64 = await readFileAsBase64(uri);
-    const pdfBytes = base64ToUint8Array(base64);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pdfDoc = await PDFDocument.load(base64ToUint8Array(base64));
     return pdfDoc.getPageCount();
   } catch (error) {
-    console.error('getPdfPageCount error:', error);
     return null;
   }
 }
 
-/**
- * List all saved PDFs in the output directory
- */
+// ─── LIST SAVED FILES ────────────────────────────────────────────────────────
 export async function listSavedFiles() {
   try {
     const dir = await ensureOutputDir();
     const files = await FileSystem.readDirectoryAsync(dir);
     const results = [];
-
     for (const filename of files) {
       if (filename.endsWith('.pdf')) {
         const filePath = dir + filename;
         const info = await FileSystem.getInfoAsync(filePath, { size: true });
-        results.push({
-          name: filename,
-          path: filePath,
-          size: info.size || 0,
-          modificationTime: info.modificationTime || Date.now(),
-        });
+        results.push({ name: filename, path: filePath, size: info.size || 0, modificationTime: info.modificationTime || Date.now() });
       }
     }
-
     return results.sort((a, b) => b.modificationTime - a.modificationTime);
   } catch (error) {
-    console.error('listSavedFiles error:', error);
     return [];
   }
 }

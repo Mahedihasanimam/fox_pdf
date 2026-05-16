@@ -1,0 +1,79 @@
+Design Problems to Fix
+Navigation & UX
+No bottom tab bar — the Files screen is buried behind "See all". Heavy users will never find it. A tab bar (Tools | Files | Settings) is standard for this category.
+Arrow-based reordering (↑↓) — used in both Image-to-PDF and Merge. Drag-and-drop with react-native-draggable-flatlist is the expected pattern and already feels dated.
+No PDF viewer — users can't preview what they're working with or review the output. They have to leave the app to open the file. This kills trust.
+No haptic feedback — button taps feel dead. expo-haptics is a 2-line fix.
+"FREE" badge in the header — signals Pro exists, but nothing is gated. Remove it or build the Pro tier.
+Visual
+Emoji icons instead of vector icons — @expo/vector-icons is already installed in package.json but never used. Emoji icons (🖼️ ✂️ 🔗) look unprofessional vs proper SVG icons.
+No dark mode — expected in 2025. useColorScheme() + a dark palette would cover it.
+Generic processing screen — same spinning progress bar for all 4 operations. Missed branding opportunity.
+Critical Bug
+Compress PDF doesn't actually compress — pdfOperations.js:223 just re-saves the PDF with useObjectStreams. For text-heavy PDFs the size won't drop. The "40-60% savings" claim shown in the UI is false and will generate 1-star reviews. A real compress needs image downsampling (not possible in pdf-lib alone — needs a different approach or a disclaimer).
+Functionality Gaps
+Missing basics
+Missing	Why it matters
+PDF Viewer (in-app)	Users must leave app to see output
+Camera scan to PDF	Gallery-only; can't photograph documents
+Page reorder / delete	Can't rearrange pages in existing PDFs
+PDF to Images	Reverse of Image-to-PDF, very searched
+Page rotation	Essential for scanned docs
+Split every page	A common need, currently impossible
+Missing advanced
+Password protect / unlock PDF
+Watermark (add text/logo to PDFs)
+E-signature (draw/type a signature)
+PDF annotation (highlight, underline, notes)
+Batch operations (process multiple files at once)
+Rename files in the Files screen
+How to Earn Money (Monetization Plan)
+Recommended: Freemium + Ads
+Free tier (what you have now):
+
+All 4 tools, capped at 3 operations/day
+Banner ad on home screen (AdMob)
+Interstitial ad after each operation
+Pro tier — $2.99/month or $14.99/year:
+
+Unlimited operations
+No ads
+All Pro-only features (see below)
+Optional: subtle "FoxPDF watermark" on free output as nudge to upgrade
+Pro-only features to gate:
+
+Camera scan to PDF
+E-signature
+Password protect/unlock
+PDF annotation & highlighting
+Batch processing
+Cloud backup (Google Drive / Dropbox)
+No watermark on output
+Revenue estimate: At 10,000 downloads, even 2% conversion to Pro at $14.99/year = ~$3,000/year. At 100k downloads with ads + Pro: could be $30-100k/year.
+
+Easiest quick wins for revenue:
+
+Add AdMob banner to HomeScreen and interstitial after each tool completes (3-5 days work)
+Add a usage cap (3/day free) with "Upgrade to Pro" paywall (1 week work)
+Submit to App Store / Play Store — you're not listed yet
+Game-Changer Features (Ranked by Impact)
+#1 — Camera Scan to PDF with Document Edge Detection
+This is the single most searched PDF tool on mobile ("scan document to PDF"). Competitors like Adobe Scan and CamScanner built their entire businesses on it. You can do a basic version with expo-camera + manual cropping, or a premium version with ML Kit edge detection. This feature alone would double your downloads.
+
+#2 — E-Signature
+Draw, type, or upload a signature onto a PDF. Professionals (freelancers, lawyers, realtors) will pay for this. It works 100% offline with react-native-signature-canvas + pdf-lib placing the signature image. This is the easiest Pro feature to gate because users immediately see the value.
+
+#3 — In-App PDF Viewer
+Without viewing the output in-app, the product feels unfinished. react-native-pdf adds a full viewer. Pair this with annotation tools (highlight, draw) and you have a sticky daily-use app instead of a one-time utility.
+
+#4 — PDF Annotation (Highlight / Notes)
+Students and professionals annotate PDFs every day. If you own their workflow (annotate → share), they use the app daily. High retention = better App Store ranking = more organic downloads.
+
+
+Quickest Wins (This Week)
+Fix the fake compress — add a disclaimer or use image downscaling before embedding
+Replace ↑↓ arrows with drag-and-drop — use react-native-draggable-flatlist
+Add a bottom tab bar — Tools | Files | Settings
+Swap emoji icons for vector icons — @expo/vector-icons is already installed
+Add expo-haptics — 2 lines per button press, massive feel improvement
+Add AdMob — first dollar of revenue
