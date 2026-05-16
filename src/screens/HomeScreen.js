@@ -28,6 +28,7 @@ const TOOLS = [
   { id: 'eSignature', title: 'E-Signature', subtitle: 'Sign documents', iconName: 'create', key: 'eSignature', screen: 'ESignature', isPro: true },
   { id: 'watermark', title: 'Watermark', subtitle: 'Brand your PDF', iconName: 'shield-checkmark', key: 'watermark', screen: 'Watermark', isPro: false },
   { id: 'pageManager', title: 'Page Manager', subtitle: 'Reorder & delete', iconName: 'layers', key: 'pageManager', screen: 'PageManager', isPro: false },
+  { id: 'handwriting', title: 'Handwriting PDF', subtitle: 'Type → Handwritten', iconName: 'pencil', key: 'handwriting', screen: 'Handwriting', isPro: false },
 ];
 
 export default function HomeScreen({ navigation }) {

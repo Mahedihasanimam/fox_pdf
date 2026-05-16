@@ -1,5 +1,5 @@
-import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
-import * as FileSystem from 'expo-file-system';
+import { PDFDocument, degrees, rgb, StandardFonts } from "pdf-lib";
+import * as FileSystem from "expo-file-system";
 import {
   readFileAsBase64,
   writeBase64ToFile,
@@ -7,43 +7,63 @@ import {
   base64ToUint8Array,
   uint8ArrayToBase64,
   imageUriToBytes,
-} from './pdfHelpers';
+  normalizeImageUriForPdf,
+} from "./pdfHelpers";
 
-const OUTPUT_DIR = FileSystem.documentDirectory + 'FoxPDF/';
+const OUTPUT_DIR = FileSystem.documentDirectory + "FoxPDF/";
 
 async function ensureOutputDir() {
   const info = await FileSystem.getInfoAsync(OUTPUT_DIR);
-  if (!info.exists) await FileSystem.makeDirectoryAsync(OUTPUT_DIR, { intermediates: true });
+  if (!info.exists)
+    await FileSystem.makeDirectoryAsync(OUTPUT_DIR, { intermediates: true });
   return OUTPUT_DIR;
 }
 
 // ─── IMAGE TO PDF ────────────────────────────────────────────────────────────
-export async function imagesToPdf(imageUris, onProgress) {
+// imageAssets: string[] (URIs) or { uri, mimeType }[] — both accepted
+export async function imagesToPdf(imageAssets, onProgress) {
   try {
     const dir = await ensureOutputDir();
     const pdfDoc = await PDFDocument.create();
+    const assets = imageAssets.map((a) =>
+      typeof a === "string" ? { uri: a, mimeType: null } : a,
+    );
 
-    for (let i = 0; i < imageUris.length; i++) {
-      const uri = imageUris[i];
-      if (onProgress) onProgress((i / imageUris.length) * 0.9);
+    for (let i = 0; i < assets.length; i++) {
+      const { uri, mimeType } = assets[i];
+      if (onProgress) onProgress((i / assets.length) * 0.9);
       try {
-        const imageBytes = await imageUriToBytes(uri);
-        const ext = uri.split('.').pop()?.toLowerCase();
-        const isJpeg = ext === 'jpg' || ext === 'jpeg';
+        const normalized = await normalizeImageUriForPdf(uri, mimeType);
+        const imageBytes = await imageUriToBytes(normalized.uri);
+        const mime = (
+          normalized.mimeType ||
+          mimeType ||
+          "image/jpeg"
+        ).toLowerCase();
+        const isPng = mime.includes("png");
 
         let image;
-        if (isJpeg) {
-          image = await pdfDoc.embedJpg(imageBytes);
+        if (isPng) {
+          image = await pdfDoc.embedPng(imageBytes);
         } else {
-          try { image = await pdfDoc.embedPng(imageBytes); }
-          catch { image = await pdfDoc.embedJpg(imageBytes); }
+          image = await pdfDoc.embedJpg(imageBytes);
         }
 
         const { width, height } = image;
-        const pageWidth = 595, pageHeight = 842, margin = 20;
-        const scale = Math.min((pageWidth - margin * 2) / width, (pageHeight - margin * 2) / height, 1);
-        const scaledW = width * scale, scaledH = height * scale;
-        const x = (pageWidth - scaledW) / 2, y = (pageHeight - scaledH) / 2;
+        if (!width || !height) throw new Error("Image has zero dimensions");
+
+        const pageWidth = 595;
+        const pageHeight = 842;
+        const margin = 20;
+        const scale = Math.min(
+          (pageWidth - margin * 2) / width,
+          (pageHeight - margin * 2) / height,
+          1,
+        );
+        const scaledW = width * scale;
+        const scaledH = height * scale;
+        const x = (pageWidth - scaledW) / 2;
+        const y = (pageHeight - scaledH) / 2;
         const page = pdfDoc.addPage([pageWidth, pageHeight]);
         page.drawImage(image, { x, y, width: scaledW, height: scaledH });
       } catch (err) {
@@ -51,16 +71,26 @@ export async function imagesToPdf(imageUris, onProgress) {
       }
     }
 
+    if (pdfDoc.getPageCount() === 0) {
+      throw new Error(
+        "No images could be embedded. Ensure files are valid images.",
+      );
+    }
+
     if (onProgress) onProgress(0.95);
     const pdfBytes = await pdfDoc.save();
-    const base64 = uint8ArrayToBase64(pdfBytes);
-    const outputName = generateOutputName('images_to_pdf');
+    const outputName = generateOutputName("images_to_pdf");
     const outputPath = dir + outputName;
-    await writeBase64ToFile(base64, outputPath);
+    await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
     if (onProgress) onProgress(1);
-    return { success: true, path: outputPath, name: outputName, size: pdfBytes.length };
+    return {
+      success: true,
+      path: outputPath,
+      name: outputName,
+      size: pdfBytes.length,
+    };
   } catch (error) {
-    throw new Error('Failed to convert images to PDF: ' + error.message);
+    throw new Error("Failed to convert images to PDF: " + error.message);
   }
 }
 
@@ -75,7 +105,10 @@ export async function mergePdfs(pdfUris, onProgress) {
       try {
         const base64 = await readFileAsBase64(pdfUris[i]);
         const srcPdf = await PDFDocument.load(base64ToUint8Array(base64));
-        const pages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
+        const pages = await mergedPdf.copyPages(
+          srcPdf,
+          srcPdf.getPageIndices(),
+        );
         pages.forEach((page) => mergedPdf.addPage(page));
       } catch (err) {
         console.warn(`Skipping PDF ${i}: ${err.message}`);
@@ -85,13 +118,13 @@ export async function mergePdfs(pdfUris, onProgress) {
     if (onProgress) onProgress(0.95);
     const mergedBytes = await mergedPdf.save();
     const base64 = uint8ArrayToBase64(mergedBytes);
-    const outputName = generateOutputName('merged');
+    const outputName = generateOutputName("merged");
     const outputPath = dir + outputName;
     await writeBase64ToFile(base64, outputPath);
     if (onProgress) onProgress(1);
     return { success: true, path: outputPath, name: outputName };
   } catch (error) {
-    throw new Error('Failed to merge PDFs: ' + error.message);
+    throw new Error("Failed to merge PDFs: " + error.message);
   }
 }
 
@@ -109,7 +142,10 @@ export async function splitPdf(pdfUri, startPage, endPage, onProgress) {
     if (onProgress) onProgress(0.4);
 
     const newPdf = await PDFDocument.create();
-    const indices = Array.from({ length: end - start + 1 }, (_, i) => start - 1 + i);
+    const indices = Array.from(
+      { length: end - start + 1 },
+      (_, i) => start - 1 + i,
+    );
     const copied = await newPdf.copyPages(srcPdf, indices);
     copied.forEach((p) => newPdf.addPage(p));
 
@@ -119,9 +155,15 @@ export async function splitPdf(pdfUri, startPage, endPage, onProgress) {
     const outputPath = dir + outputName;
     await writeBase64ToFile(uint8ArrayToBase64(newBytes), outputPath);
     if (onProgress) onProgress(1);
-    return { success: true, path: outputPath, name: outputName, totalPages, extractedPages: end - start + 1 };
+    return {
+      success: true,
+      path: outputPath,
+      name: outputName,
+      totalPages,
+      extractedPages: end - start + 1,
+    };
   } catch (error) {
-    throw new Error('Failed to split PDF: ' + error.message);
+    throw new Error("Failed to split PDF: " + error.message);
   }
 }
 
@@ -147,12 +189,12 @@ export async function splitAllPages(pdfUri, onProgress) {
     if (onProgress) onProgress(1);
     return { success: true, totalPages };
   } catch (error) {
-    throw new Error('Failed to split all pages: ' + error.message);
+    throw new Error("Failed to split all pages: " + error.message);
   }
 }
 
 // ─── COMPRESS PDF ────────────────────────────────────────────────────────────
-export async function compressPdf(pdfUri, level = 'medium', onProgress) {
+export async function compressPdf(pdfUri, level = "medium", onProgress) {
   try {
     const dir = await ensureOutputDir();
     if (onProgress) onProgress(0.1);
@@ -164,7 +206,9 @@ export async function compressPdf(pdfUri, level = 'medium', onProgress) {
     const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
     if (onProgress) onProgress(0.6);
 
-    const compressedBytes = await pdfDoc.save({ useObjectStreams: level !== 'low' });
+    const compressedBytes = await pdfDoc.save({
+      useObjectStreams: level !== "low",
+    });
     if (onProgress) onProgress(0.9);
 
     const outputName = generateOutputName(`optimised_${level}`);
@@ -172,11 +216,21 @@ export async function compressPdf(pdfUri, level = 'medium', onProgress) {
     await writeBase64ToFile(uint8ArrayToBase64(compressedBytes), outputPath);
 
     const newSize = compressedBytes.length;
-    const savedPercent = Math.max(0, Math.round(((originalSize - newSize) / originalSize) * 100));
+    const savedPercent = Math.max(
+      0,
+      Math.round(((originalSize - newSize) / originalSize) * 100),
+    );
     if (onProgress) onProgress(1);
-    return { success: true, path: outputPath, name: outputName, originalSize, newSize, savedPercent };
+    return {
+      success: true,
+      path: outputPath,
+      name: outputName,
+      originalSize,
+      newSize,
+      savedPercent,
+    };
   } catch (error) {
-    throw new Error('Failed to optimise PDF: ' + error.message);
+    throw new Error("Failed to optimise PDF: " + error.message);
   }
 }
 
@@ -208,13 +262,13 @@ export async function addWatermark(pdfUri, text, opacity = 0.25, onProgress) {
 
     if (onProgress) onProgress(0.95);
     const pdfBytes = await pdfDoc.save();
-    const outputName = generateOutputName('watermarked');
+    const outputName = generateOutputName("watermarked");
     const outputPath = dir + outputName;
     await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
     if (onProgress) onProgress(1);
     return { success: true, path: outputPath, name: outputName };
   } catch (error) {
-    throw new Error('Failed to add watermark: ' + error.message);
+    throw new Error("Failed to add watermark: " + error.message);
   }
 }
 
@@ -228,7 +282,10 @@ export async function embedSignature(pdfUri, signatureBase64, onProgress) {
 
     if (onProgress) onProgress(0.4);
     // signature comes as data:image/png;base64,xxxx
-    const sigDataBase64 = signatureBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+    const sigDataBase64 = signatureBase64.replace(
+      /^data:image\/[a-z]+;base64,/,
+      "",
+    );
     const sigBytes = base64ToUint8Array(sigDataBase64);
     const sigImage = await pdfDoc.embedPng(sigBytes);
 
@@ -248,13 +305,13 @@ export async function embedSignature(pdfUri, signatureBase64, onProgress) {
 
     if (onProgress) onProgress(0.85);
     const pdfBytes = await pdfDoc.save();
-    const outputName = generateOutputName('signed');
+    const outputName = generateOutputName("signed");
     const outputPath = dir + outputName;
     await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
     if (onProgress) onProgress(1);
     return { success: true, path: outputPath, name: outputName };
   } catch (error) {
-    throw new Error('Failed to embed signature: ' + error.message);
+    throw new Error("Failed to embed signature: " + error.message);
   }
 }
 
@@ -283,13 +340,18 @@ export async function managePages(pdfUri, pages, onProgress) {
 
     if (onProgress) onProgress(0.85);
     const pdfBytes = await newPdf.save();
-    const outputName = generateOutputName('managed');
+    const outputName = generateOutputName("managed");
     const outputPath = dir + outputName;
     await writeBase64ToFile(uint8ArrayToBase64(pdfBytes), outputPath);
     if (onProgress) onProgress(1);
-    return { success: true, path: outputPath, name: outputName, pageCount: activePagesOrdered.length };
+    return {
+      success: true,
+      path: outputPath,
+      name: outputName,
+      pageCount: activePagesOrdered.length,
+    };
   } catch (error) {
-    throw new Error('Failed to rebuild PDF: ' + error.message);
+    throw new Error("Failed to rebuild PDF: " + error.message);
   }
 }
 
@@ -311,10 +373,15 @@ export async function listSavedFiles() {
     const files = await FileSystem.readDirectoryAsync(dir);
     const results = [];
     for (const filename of files) {
-      if (filename.endsWith('.pdf')) {
+      if (filename.endsWith(".pdf")) {
         const filePath = dir + filename;
         const info = await FileSystem.getInfoAsync(filePath, { size: true });
-        results.push({ name: filename, path: filePath, size: info.size || 0, modificationTime: info.modificationTime || Date.now() });
+        results.push({
+          name: filename,
+          path: filePath,
+          size: info.size || 0,
+          modificationTime: info.modificationTime || Date.now(),
+        });
       }
     }
     return results.sort((a, b) => b.modificationTime - a.modificationTime);

@@ -34,6 +34,7 @@ export const LIGHT_COLORS = {
   watermark: { bg: '#F0FDF4', icon: '#10B981', border: '#A7F3D0' },
   pageManager: { bg: '#FFF5F5', icon: '#EF4444', border: '#FECACA' },
   pdfViewer: { bg: '#F5F3FF', icon: '#8B5CF6', border: '#DDD6FE' },
+  handwriting: { bg: '#FFFBF0', icon: '#D97706', border: '#FDE68A' },
 };
 
 // Dark mode palette
@@ -72,6 +73,7 @@ export const DARK_COLORS = {
   watermark: { bg: '#0A1F15', icon: '#34D399', border: '#1A3D28' },
   pageManager: { bg: '#2A0D0D', icon: '#F87171', border: '#4A1A1A' },
   pdfViewer: { bg: '#160D2E', icon: '#A78BFA', border: '#2D1A5A' },
+  handwriting: { bg: '#1E1500', icon: '#FCD34D', border: '#3D2A00' },
 };
 
 // Default export stays for any remaining direct imports

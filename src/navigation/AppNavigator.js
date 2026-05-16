@@ -16,6 +16,7 @@ import PdfViewerScreen from '../screens/PdfViewerScreen';
 import ESignatureScreen from '../screens/ESignatureScreen';
 import WatermarkScreen from '../screens/WatermarkScreen';
 import PageManagerScreen from '../screens/PageManagerScreen';
+import HandwritingScreen from '../screens/HandwritingScreen';
 
 const Tab = createBottomTabNavigator();
 const HomeStack = createStackNavigator();
@@ -33,6 +34,7 @@ function HomeStackNav() {
       <HomeStack.Screen name="ESignature" component={ESignatureScreen} />
       <HomeStack.Screen name="Watermark" component={WatermarkScreen} />
       <HomeStack.Screen name="PageManager" component={PageManagerScreen} />
+      <HomeStack.Screen name="Handwriting" component={HandwritingScreen} />
       <HomeStack.Screen name="PdfViewer" component={PdfViewerScreen} />
     </HomeStack.Navigator>
   );
